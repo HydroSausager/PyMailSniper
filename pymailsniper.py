@@ -54,7 +54,7 @@ def acctSetup(params):
 
 
 # List folders from a users inbox
-def folderList(accountObject):
+def folderList(accountObject, tree_view=False, count=False):
     folder = accountObject.root
     # 'Top of Information Store'
     total_folders = 0
@@ -62,6 +62,7 @@ def folderList(accountObject):
 
     print('[+] Folder List for Compromised Users' + '\n')
     for folder_object in folder.walk():
+
         folder_name = folder_object.name
         folder_abs_path = folder_object.absolute
         folder_child_folders = folder_object.child_folder_count
@@ -69,11 +70,18 @@ def folderList(accountObject):
 
         total_folders += folder_child_folders
         total_emails += folder_child_emails
-
-        print(f"{'-' * (folder_abs_path.count('/') * 4 - 8)}{folder_name} (folders: {folder_child_folders}, emails: {folder_child_emails})")
-    else:
+        info_to_print = ""
+        if tree_view:
+            info_to_print += f"{'-' * (folder_abs_path.count('/') * 4 - 8)}{folder_name} (folders: {folder_child_folders}"
+        else:
+            info_to_print += f"{folder_abs_path}"
+        if count:
+            info_to_print += f' (folders: {folder_child_folders}, emails: {folder_child_emails})'
+        print(info_to_print)
+    if count:
         print("\nTotal folders: " + str(total_folders))
-        print("\nTotal emails: " + str(total_emails))
+        print("Total emails: " + str(total_emails))
+
 
 # Search users email for specified terms
 def searchEmail(accountObject, params, loghandle):
@@ -221,7 +229,9 @@ def print_logo():
 
 if __name__ == "__main__":
     # This is where we start parsing arguments
-    banner = "# PyMailSniper v0.2 [http://www.foofus.net] (C) sph1nx Foofus Networks <sph1nx@foofus.net>" + '\n'
+    banner = "# PyMailSniper [http://www.foofus.net] (C) sph1nx Foofus Networks <sph1nx@foofus.net>"
+    banner += "# Fork By HydroSausager"
+
     print_logo()
     print(banner)
     parser = argparse.ArgumentParser(description='Python implementation of mailsniper',
@@ -232,14 +242,17 @@ if __name__ == "__main__":
 
     optional_parser = argparse.ArgumentParser(add_help=False)
     optional_parser.add_argument('-s', '--remote-server', action="store",
-                                 dest="server", metavar=' ', help='EWS URL for Mail Server')
+                                 dest="server", help='EWS URL for Mail Server')
     optional_parser.add_argument('-e', '--email', action="store",
-                                 dest="email", metavar=' ', help='Email address of compromised user')
+                                 dest="email", help='Email address of compromised user')
     optional_parser.add_argument('-p', '--password', action="store",
-                                 dest="password", metavar=' ', help='Password of compromised user')
+                                 dest="password", help='Password of compromised user')
 
     folder_parser = subparsers.add_parser(
         'folders', help="List Mailbox Folders", parents=[optional_parser])
+    folder_parser.add_argument('-t', '--tree', action='store_true', default=False, help='Print folders tree instead of absolute paths if arg is present')
+    folder_parser.add_argument('-c', '--count', action='store_true', default=False, help='Print count of child folders and email if present')
+
 
     attach_parser = subparsers.add_parser(
         'attachment', help="List/Download Attachments", parents=[optional_parser])
@@ -263,7 +276,8 @@ if __name__ == "__main__":
                                  required=True)
 
     email_parser = subparsers.add_parser('emails', help="Search for Emails", parents=[optional_parser])
-    email_parser.add_argument('-f', '--folder', action="store", dest="folder", metavar=' ', help='Folder to search through', default='Inbox')
+    email_parser.add_argument('-f', '--folder', action="store", dest="folder", metavar=' ',
+                              help='Folder to search through', default='Inbox')
     email_parser.add_argument('-t', '--terms', action="store",
                               dest="terms", metavar=' ', help='String to Search (Comma separated for multiple terms)',
                               nargs='+', type=str, default='password,vpn,login')
@@ -295,7 +309,7 @@ if __name__ == "__main__":
         sys.exit()
 
     if parsed_arguments['modules'] == 'folders':
-        folderList(accountObj)
+        folderList(accountObj, tree_view=args.tree, count=args.count)
     elif parsed_arguments['modules'] == 'emails':
         searchEmail(accountObj, parsed_arguments, loghandle)
     elif parsed_arguments['modules'] == 'attachment':
