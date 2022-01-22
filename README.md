@@ -62,8 +62,7 @@
                            Email address of compromised user
      -p PASSWORD, --password PASSWORD
                            Password of compromised user
-     -a, --absolute        Print folders tree instead of absolute paths if arg is
-                           present
+     -a, --absolute        Print folders absolute paths instead tree if arg is present
      -c, --count           Print count of child folders and email if present
 
    ```

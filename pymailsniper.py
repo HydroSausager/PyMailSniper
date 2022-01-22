@@ -250,7 +250,7 @@ if __name__ == "__main__":
     folder_parser = subparsers.add_parser(
         'folders', help="List Mailbox Folders", parents=[optional_parser])
     folder_parser.add_argument('-a', '--absolute', action='store_true', default=False,
-                               help='Print folders tree instead of absolute paths if arg is present')
+                               help='Print folders absolute paths instead tree if arg is present')
     folder_parser.add_argument('-c', '--count', action='store_true', default=False,
                                help='Print count of child folders and email if present')
 
