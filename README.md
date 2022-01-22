@@ -1,24 +1,13 @@
-# Acknowledgments
+# Инфо
 
-This project was orignally inspired by:
+За основу взят проект от foofus-sph1nx - https://github.com/foofus-sph1nx/PyMailSniper
 
-* dafthack (https://github.com/dafthack/MailSniper)
+# Что и зачем
 
-# Motivation
+Во время пентестов, компрометируя пользователя, никогда не будет лишним изучить его почту. Но сделать это не всегда просто - трудности возникают при отсутствие GUI, пробрасывании портов и т.п. Этот форк призван облегчить жизнь максимально упростив исследование почтовых ящиков на основе MS Exchange.
 
-I wanted to get better at writing code in python and decided the best way to do that is to write something useful. I wanted to implement functionality of MailSniper using python and found the library by ecederstrand mentioned below. This made porting some features of MailSniper to python super easy.
+Создается на основе Exchangelib - (https://github.com/ecederstrand/exchangelib)
 
-* ecederstrand (https://github.com/ecederstrand/exchangelib)
-
-# Installation
-
-I have designed it to run inside pipenv, but you can use whatever you like. There is a requirements.txt so there is that
-
-This should be enough to get a pipenv setup
-
-```python
-pipenv install
-```
 
 # Documentation
 
@@ -37,32 +26,62 @@ pipenv install
             |___/                                |_|
 
 
+   # PyMailSniper [http://www.foofus.net] (C) sph1nx Foofus Networks <sph1nx@foofus.net>
+   # Fork By HydroSausager
 
+   usage: python3 pymailsniper.py module [options]
 
-    PyMailSniper v0.2 [http://www.foofus.net] (C) sph1nx Foofus Networks <sph1nx@foofus.net>
+   Python implementation of mailsniper
 
-    usage: python3 pymailsniper.py module [options]
+   optional arguments:
+     -h, --help            show this help message and exit
 
-    Python implementation of mailsniper
+   Modules:
+     available modules
 
-    optional arguments:
-      -h, --help            show this help message and exit
-
-    Modules:
-      available modules
-
-      {folders,attachment,delegation,emails}
-        folders             List Mailbox Folders
-        attachment          List/Download Attachments
-        delegation          Find where compromised user has access
-        emails              Search for Emails
+     {folders,attachment,delegation,emails}
+       folders             List Mailbox Folders
+       attachment          List/Download Attachments
+       delegation          Find where compromised user has access
+       emails              Search for Emails
 
    ```
 
 2. List Folders (Eg. Inbox is in O365)
+   ```
+   usage: python3 pymailsniper.py module [options] folders [-h] [-s SERVER]
+                                                        [-e EMAIL]
+                                                        [-p PASSWORD] [-a]
+                                                        [-c]
 
+   optional arguments:
+     -h, --help            show this help message and exit
+     -s SERVER, --remote-server SERVER
+                           EWS URL for Mail Server
+     -e EMAIL, --email EMAIL
+                           Email address of compromised user
+     -p PASSWORD, --password PASSWORD
+                           Password of compromised user
+     -a, --absolute        Print folders tree instead of absolute paths if arg is
+                           present
+     -c, --count           Print count of child folders and email if present
+
+   ```
+   Вывести список папок в виде дерева - 
     ```python
     python3 pymailsniper.py folders -s outlook.office365.com -e xyz@domain.com -p Password1
+    ```
+   Вывести список папок в виде дерева с указанием кол-ва дочерних папок и писем - 
+    ```python
+    python3 pymailsniper.py folders -c -s outlook.office365.com -e xyz@domain.com -p Password1
+    ```
+   Вывести список папок (абсолютные пути) - 
+    ```python
+    python3 pymailsniper.py folders -a -s outlook.office365.com -e xyz@domain.com -p Password1
+    ```
+   Вывести список папок (абсолютные пути) с указанием кол-ва дочерних папок и писем - 
+    ```python
+    python3 pymailsniper.py folders -a -c -s outlook.office365.com -e xyz@domain.com -p Password1
     ```
 
 3. Exfiltrate emails
