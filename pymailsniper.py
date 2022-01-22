@@ -9,7 +9,10 @@ import sys
 import logging
 import os
 from os.path import isfile
+import urllib3
 
+# ignore certificate errors and suspend warnings
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 BaseProtocol.HTTP_ADAPTER_CLS = NoVerifyHTTPAdapter
 
 
@@ -55,32 +58,30 @@ def acctSetup(params):
 
 # List folders from a users inbox
 def folderList(accountObject, tree_view=False, count=False):
-    folder = accountObject.root
+    root_folder = accountObject.root
     # 'Top of Information Store'
-    total_folders = 0
-    total_emails = 0
 
     print('[+] Folder List for Compromised Users' + '\n')
-    for folder_object in folder.walk():
 
-        folder_name = folder_object.name
-        folder_abs_path = folder_object.absolute
-        folder_child_folders = folder_object.child_folder_count
-        folder_child_emails = folder_object.total_count
+    if tree_view and not count:
+        print(root_folder.tree())
+        return
+    elif tree_view and count:
+        tree = root_folder.tree()
+    if tree_view and count:
+        for folder_object in root_folder.walk():
+            folder_childs = f' (folders: {folder_object.child_folder_count}, emails: {folder_object.total_count})'
+            tree = tree.replace(folder_object.name + "\n", folder_object.name + folder_childs + "\n")
+        print(tree)
+        return
 
-        total_folders += folder_child_folders
-        total_emails += folder_child_emails
-        info_to_print = ""
-        if tree_view:
-            info_to_print += f"{'-' * (folder_abs_path.count('/') * 4 - 8)}{folder_name} (folders: {folder_child_folders}"
-        else:
-            info_to_print += f"{folder_abs_path}"
-        if count:
-            info_to_print += f' (folders: {folder_child_folders}, emails: {folder_child_emails})'
-        print(info_to_print)
-    if count:
-        print("\nTotal folders: " + str(total_folders))
-        print("Total emails: " + str(total_emails))
+    if not tree_view:
+        for folder_object in root_folder.walk():
+
+            info_to_print = folder_object.absolute
+            if count:
+                info_to_print += f' (folders: {folder_object.child_folder_count}, emails: {folder_object.total_count})'
+            print(info_to_print)
 
 
 # Search users email for specified terms
@@ -219,9 +220,7 @@ def print_logo():
  |_|    \__, |_|  |_|\__,_|_|_|_____/|_| |_|_| .__/ \___|_|   
          __/ |                               | |              
         |___/                                |_|              
-
-                       
-
+        
    '''
 
     print(logo)
@@ -230,7 +229,7 @@ def print_logo():
 if __name__ == "__main__":
     # This is where we start parsing arguments
     banner = "# PyMailSniper [http://www.foofus.net] (C) sph1nx Foofus Networks <sph1nx@foofus.net>"
-    banner += "# Fork By HydroSausager"
+    banner += "\n# Fork By HydroSausager\n"
 
     print_logo()
     print(banner)
@@ -250,9 +249,10 @@ if __name__ == "__main__":
 
     folder_parser = subparsers.add_parser(
         'folders', help="List Mailbox Folders", parents=[optional_parser])
-    folder_parser.add_argument('-t', '--tree', action='store_true', default=False, help='Print folders tree instead of absolute paths if arg is present')
-    folder_parser.add_argument('-c', '--count', action='store_true', default=False, help='Print count of child folders and email if present')
-
+    folder_parser.add_argument('-a', '--absolute', action='store_true', default=False,
+                               help='Print folders tree instead of absolute paths if arg is present')
+    folder_parser.add_argument('-c', '--count', action='store_true', default=False,
+                               help='Print count of child folders and email if present')
 
     attach_parser = subparsers.add_parser(
         'attachment', help="List/Download Attachments", parents=[optional_parser])
@@ -308,8 +308,10 @@ if __name__ == "__main__":
         print('[+] Could not connect to MailBox [+]')
         sys.exit()
 
+    print(f"[+] Email - {args.email}, server - {args.server}")
+
     if parsed_arguments['modules'] == 'folders':
-        folderList(accountObj, tree_view=args.tree, count=args.count)
+        folderList(accountObj, tree_view=not args.absolute, count=args.count)
     elif parsed_arguments['modules'] == 'emails':
         searchEmail(accountObj, parsed_arguments, loghandle)
     elif parsed_arguments['modules'] == 'attachment':
