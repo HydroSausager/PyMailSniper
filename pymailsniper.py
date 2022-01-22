@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 
 from exchangelib import Account, Credentials, Configuration, DELEGATE, Folder, FileAttachment, BaseProtocol, \
-    NoVerifyHTTPAdapter
+    NoVerifyHTTPAdapter, Message, Q
 from exchangelib.errors import UnauthorizedError, CASError
 import requests
+import mailbox
 import argparse
 import sys
 import logging
@@ -86,11 +87,19 @@ def folderList(accountObject, tree_view=False, count=False):
 
 # Search users email for specified terms
 def searchEmail(accountObject, params, loghandle):
-    folder = params.get("folder") #по умолчанию Inbox почему-то
+    folder = params.get("folder")  # по умолчанию Inbox почему-то
     terms = params.get("terms")
     count = params.get("count")
+    # filtered_emails = list()
+    # output = params.get("output")
+
+    # mbox = mailbox.mbox("./z35.mbox")
+    # mbox.lock()
+
     if len(terms) > 1:
         termList = terms.split(',')
+    elif type(terms) == list:
+        termList = terms[0].split(',')
     else:
         termList = terms
 
@@ -98,28 +107,32 @@ def searchEmail(accountObject, params, loghandle):
         searchFolder = accountObject.inbox
     else:
         # searchFolder = accountObject.root / 'Top of Information Store' / folder
-        searchFolder = accountObject.inbox #root / 'Корневой уровень хранилища'
+        searchFolder = accountObject.inbox  # root / 'Корневой уровень хранилища'
 
     if params.get("field") == 'body':
         print(
             '[+] Searching Email body for {} in {} Folder [+]'.format(terms, folder) + '\n')
         for term in termList:
-            searchResult = searchFolder.filter(body__contains=term)[:count]
+            searchResult = searchFolder.all().filter(body__contains=term)[:count]
     else:
         print(
             '[+] Searching Email Subject for {} in {} Folder [+]'.format(terms, folder) + '\n')
         for term in termList:
-            searchResult = searchFolder.filter(body__contains=term)
+            searchResult = searchFolder.all().filter(body__contains=term)
 
-    for emails in searchResult:
-        # loghandle.debug
-        print('''
-From: {}
-Date: {}
-Subject: {}
-Body: {}
-*************************************************************************************************{}'''.format(
-            emails.author.email_address, emails.datetime_received, emails.subject, emails.text_body, '\n'))
+    # for filtered_email in filtered_emails:
+    #     for email in filtered_email:
+    #         msg = mailbox.mboxMessage(email.mime_content)
+    #         mbox.add(msg)
+    #         mbox.flush()
+    # mbox.unlock()
+
+    # Пока в файл запись. TODO: Разобраться с кодировками и нормально доставать email.text_body.
+    with open('emails.txt', 'w', encoding='UTF-8') as output_file:
+        for email in searchResult:
+            output_file.write(f"From: {email.author.email_address}\nDate: {email.datetime_received}\n"
+                              f"Subject: {email.subject}\nBody: {email.text_body}\n"
+                              f"***************************************************\n")
 
 
 # Search for attachments based on search terms provided
@@ -127,6 +140,7 @@ def searchAttachments(accountObject, params):
     folder = params.get("folder")
     terms = params.get("terms")
     count = params.get("count")
+
     if len(terms) > 1:
         termList = terms.split(',')
     else:
@@ -283,7 +297,7 @@ if __name__ == "__main__":
                               help='Folder to search through', default='Inbox')
     email_parser.add_argument('-t', '--terms', action="store",
                               dest="terms", metavar=' ', help='String to Search (Comma separated for multiple terms)',
-                              nargs='+', type=str, default='password,vpn,login')
+                              nargs='+', type=str, default='password,login,vpn')
     email_parser.add_argument('-c', '--count', action="store",
                               dest="count", metavar=' ', help='Number of emails to search', type=int, default='10')
     email_parser.add_argument('--field', action="store",
@@ -306,6 +320,8 @@ if __name__ == "__main__":
     if parsed_arguments.get("output"):
         loghandle = loggerCreate(parsed_arguments)
     accountObj = acctSetup(parsed_arguments)
+
+    print([f.name for f in Message.FIELDS if f.is_searchable])
 
     if accountObj is None:
         print('[+] Could not connect to MailBox [+]')
