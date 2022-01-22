@@ -86,7 +86,7 @@ def folderList(accountObject, tree_view=False, count=False):
 
 # Search users email for specified terms
 def searchEmail(accountObject, params, loghandle):
-    folder = params.get("folder")
+    folder = params.get("folder") #по умолчанию Inbox почему-то
     terms = params.get("terms")
     count = params.get("count")
     if len(terms) > 1:
@@ -97,7 +97,9 @@ def searchEmail(accountObject, params, loghandle):
     if params.get("delegated"):
         searchFolder = accountObject.inbox
     else:
-        searchFolder = accountObject.root / 'Top of Information Store' / folder
+        # searchFolder = accountObject.root / 'Top of Information Store' / folder
+        searchFolder = accountObject.inbox #root / 'Корневой уровень хранилища'
+
     if params.get("field") == 'body':
         print(
             '[+] Searching Email body for {} in {} Folder [+]'.format(terms, folder) + '\n')
@@ -107,10 +109,11 @@ def searchEmail(accountObject, params, loghandle):
         print(
             '[+] Searching Email Subject for {} in {} Folder [+]'.format(terms, folder) + '\n')
         for term in termList:
-            searchResult = searchFolder.filter(subject__contains=term)[:count]
+            searchResult = searchFolder.filter(body__contains=term)
 
     for emails in searchResult:
-        loghandle.debug('''
+        # loghandle.debug
+        print('''
 From: {}
 Date: {}
 Subject: {}
