@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-
+import re
 from exchangelib import Account, Credentials, Configuration, DELEGATE, Folder, FileAttachment, BaseProtocol, \
     NoVerifyHTTPAdapter
 from exchangelib.errors import UnauthorizedError, CASError
+import mailbox
 import requests
 import argparse
 import sys
@@ -10,6 +11,7 @@ import logging
 import os
 from os.path import isfile
 import urllib3
+import tqdm
 
 # ignore certificate errors and suspend warnings
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -86,7 +88,7 @@ def folderList(accountObject, tree_view=False, count=False):
 
 # Search users email for specified terms
 def searchEmail(accountObject, params, loghandle):
-    folder = params.get("folder") #по умолчанию Inbox почему-то
+    folder = params.get("folder")  # по умолчанию Inbox почему-то
     terms = params.get("terms")
     count = params.get("count")
     if len(terms) > 1:
@@ -98,7 +100,7 @@ def searchEmail(accountObject, params, loghandle):
         searchFolder = accountObject.inbox
     else:
         # searchFolder = accountObject.root / 'Top of Information Store' / folder
-        searchFolder = accountObject.inbox #root / 'Корневой уровень хранилища'
+        searchFolder = accountObject.inbox  # root / 'Корневой уровень хранилища'
 
     if params.get("field") == 'body':
         print(
@@ -229,6 +231,67 @@ def print_logo():
     print(logo)
 
 
+def dump_folder(accountObject=None, folder=None):
+    folder = accountObject.inbox
+
+    mbox = mailbox.mbox("./dump.mbox")
+    mbox.lock()
+    # inbox = accountObject.inbox.all().order_by('-datetime_received')
+    # inbox2 = inbox.only('id', 'changekey')
+    # item_ids_remote = list(inbox2)
+
+    # total_items_remote = len(item_ids_remote)
+    # print(total_items_remote)
+
+    qs = accountObject.inbox.all().only('mime_content')[:10]
+    # qs.page_size = 200  # Number of IDs for FindItem to get per page
+    # qs.chunk_size = 5  # Number of full items for GetItem to request per call
+
+    for email in qs:
+        msg = mailbox.mboxMessage(email.mime_content)
+        mbox.add(msg)
+        mbox.flush()
+        # print("[{}/{}] {} {}".format(i, len(new_ids), str(item.datetime_received), item.subject))
+
+    mbox.unlock()
+
+
+def dump_all(accountObject=None):
+    # брать папку из аргументов если dump all -d "папка куда"
+    try:
+        os.mkdir("dump")
+    except:
+        os.rmdir("dump")
+        os.mkdir("dump")
+
+
+    base = accountObject.msg_folder_root
+
+    for folder in base.walk():
+        if folder.total_count == 0:
+            continue
+
+        folder_name = (folder.absolute).replace(base.absolute+"/","")
+        folder_name = re.sub("[^0-9a-zA-Z\s]+", " ", folder_name)
+
+        mbox_file_path = "./dump/"+folder.name+".mbox"
+
+        print(f"[+] Dumping {folder.name} to {mbox_file_path}")
+
+        mbox = mailbox.mbox(mbox_file_path)
+        mbox.lock()
+        # Ограничение на 10 писем для тестов
+        qs = folder.all().only('mime_content')[:10]
+
+        # Ограничение на 10 писем для тестов
+        for _ in tqdm.trange(10, leave=True):
+            for email in qs:
+                msg = mailbox.mboxMessage(email.mime_content)
+                mbox.add(msg)
+                mbox.flush()
+        mbox.unlock()
+
+
 if __name__ == "__main__":
     # This is where we start parsing arguments
     banner = "# PyMailSniper [http://www.foofus.net] (C) sph1nx Foofus Networks <sph1nx@foofus.net>"
@@ -256,6 +319,11 @@ if __name__ == "__main__":
                                help='Print folders absolute paths instead tree if arg is present')
     folder_parser.add_argument('-c', '--count', action='store_true', default=False,
                                help='Print count of child folders and email if present')
+
+    dump_parser = subparsers.add_parser(
+        'dump', help="Download emails", parents=[optional_parser])
+    dump_parser.add_argument('folder', action='store', default="Inbox",
+                             help='Folder to dump')
 
     attach_parser = subparsers.add_parser(
         'attachment', help="List/Download Attachments", parents=[optional_parser])
@@ -315,6 +383,11 @@ if __name__ == "__main__":
 
     if parsed_arguments['modules'] == 'folders':
         folderList(accountObj, tree_view=not args.absolute, count=args.count)
+    elif parsed_arguments['modules'] == 'dump':
+        if args.folder == 'all':
+            dump_all(accountObj)
+        else:
+            dump_folder(accountObj, args.folder)
     elif parsed_arguments['modules'] == 'emails':
         searchEmail(accountObj, parsed_arguments, loghandle)
     elif parsed_arguments['modules'] == 'attachment':
