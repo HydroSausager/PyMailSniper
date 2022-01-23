@@ -265,7 +265,6 @@ def dump_to_Mbox(folder_name=None, mbox_file_path=None, messages=[]):
             msg = mailbox.mboxMessage(messages[message_index])
             mbox.add(msg)
             mbox.flush()
-
         mbox.unlock()
     except Exception as e:
         print(f"[-] Error while saving {folder_name} to {mbox_file_path}:")
