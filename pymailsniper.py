@@ -35,8 +35,9 @@ def loggerCreate(params):
     return logger
 
 
-# Function to setup an Exchangelib Account object to be used throughout the code
 def acctSetup(params):
+    """Function to setup an Exchangelib Account object to be used throughout the code"""
+
     server = params.get('server')
     email = params.get('email')
     password = params.get('password')
@@ -58,8 +59,9 @@ def acctSetup(params):
         print(e)
 
 
-# List folders from a users inbox
 def folderList(accountObject, tree_view=False, count=False):
+    """List folders from a users inbox"""
+
     root_folder = accountObject.root
     # 'Top of Information Store'
 
@@ -86,8 +88,9 @@ def folderList(accountObject, tree_view=False, count=False):
             print(info_to_print)
 
 
-# Search users email for specified terms
 def searchEmail(accountObject, params, loghandle):
+    """Search users email for specified terms"""
+
     folder = params.get("folder")  # по умолчанию Inbox почему-то
     terms = params.get("terms")
     count = params.get("count")
@@ -124,8 +127,9 @@ Body: {}
             emails.author.email_address, emails.datetime_received, emails.subject, emails.text_body, '\n'))
 
 
-# Search for attachments based on search terms provided
 def searchAttachments(accountObject, params):
+    """Search for attachments based on search terms provided"""
+
     folder = params.get("folder")
     terms = params.get("terms")
     count = params.get("count")
@@ -164,8 +168,9 @@ def searchAttachments(accountObject, params):
     print('\n' + 'Saved attachment to', params.get("directory"))
 
 
-# Check where compromised user has delegation rights
 def searchDelegates(params, fparser):
+    """Check where compromised user has delegation rights"""
+
     server = params.get('server')
     email = params.get('email')
     password = params.get('password')
@@ -198,8 +203,9 @@ def searchDelegates(params, fparser):
                 print(e)
 
 
-# This is where we check if the address list file provided exists
 def file_parser(params):
+    """This is where we check if the address list file provided exists"""
+
     return_dict = {}
 
     if isfile(params.get("galList")):
@@ -232,6 +238,7 @@ def print_logo():
 
 
 def dump_folder(accountObject=None, folder=None):
+    """Dump default folder"""
     folder = accountObject.inbox
 
     mbox = mailbox.mbox("./dump.mbox")
@@ -257,13 +264,14 @@ def dump_folder(accountObject=None, folder=None):
 
 
 def dump_all(accountObject=None):
+    """Dump all folders"""
+
     # брать папку из аргументов если dump all -d "папка куда"
     try:
         os.mkdir("dump")
     except:
         os.rmdir("dump")
         os.mkdir("dump")
-
 
     base = accountObject.msg_folder_root
 
