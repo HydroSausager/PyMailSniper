@@ -70,12 +70,12 @@ def print_folders(accountObject, tree_view=False, count=False, root=False):
         print("\n[=] Done\n")
         return
     elif tree_view and count:
-        tree = root_folder.tree()#.split("\n")
+        tree = root_folder.tree()  # .split("\n")
     if tree_view and count:
         for folder_object in root_folder.walk():
             folder_childs = f' (folders: {folder_object.child_folder_count}, emails: {folder_object.total_count})'
             # tree = tree.replace(folder_object.name + "\n", "{:50s} {}\n".format(folder_object.name, folder_childs))
-            regex = f"(?<=(\n)).*({folder_object.name.replace('?','.')})\n"
+            regex = f"(?<=(\n)).*({folder_object.name.replace('?', '.')})\n"
 
             try:
                 result = re.search(regex, tree).group(0)
@@ -260,8 +260,9 @@ def dump_to_Mbox(folder_name=None, mbox_file_path=None, messages=[]):
     try:
         mbox = mailbox.mbox(mbox_file_path)
         mbox.lock()
-        for message in messages:
-            msg = mailbox.mboxMessage(message)
+        desc = "[+] Saving folder {} to {}".format('"' + folder_name + '"', mbox_file_path)
+        for message_index in tqdm.tqdm(range(len(messages)), desc=desc, leave=False, unit="email"):
+            msg = mailbox.mboxMessage(messages[message_index])
             mbox.add(msg)
             mbox.flush()
         mbox.unlock()
@@ -269,7 +270,7 @@ def dump_to_Mbox(folder_name=None, mbox_file_path=None, messages=[]):
         print(f"[-] Error while saving {folder_name} to {mbox_file_path}:")
         print(e)
     finally:
-        print("[+] Folder {:30s} dumped to {}".format('"'+folder_name+'"',mbox_file_path))
+        print("[+] Folder {:30s} dumped to {}".format('"' + folder_name + '"', mbox_file_path))
 
 
 def get_emails(accountObject=None, items_list=None, folder_name=None):
@@ -339,7 +340,7 @@ def dumper(accountObject=None, folder_to_dump="Inbox", local_folder="dump"):
         mbox_file_path = sanitaze_file_path(mbox_file_path)
         mbox_file_path = f"./{local_folder}/{mbox_file_path}.mbox"
 
-        items = folder.all().only('id', 'changekey').order_by('-datetime_received')#[:10]
+        items = folder.all().only('id', 'changekey').order_by('-datetime_received')  # [:10]
         messages = get_emails(accountObject=accountObject, items_list=items, folder_name=folder.name)
         dump_to_Mbox(folder_name=folder.name, mbox_file_path=mbox_file_path, messages=messages)
 
@@ -449,3 +450,5 @@ if __name__ == "__main__":
         searchAttachments(accountObj, parsed_arguments)
     elif parsed_arguments['modules'] == 'delegation':
         searchDelegates(parsed_arguments, fileparser)
+
+# to-do get file sizes
