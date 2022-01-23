@@ -269,7 +269,7 @@ def dump_to_Mbox(folder_name=None, mbox_file_path=None, messages=[]):
         print(f"[-] Error while saving {folder_name} to {mbox_file_path}:")
         print(e)
     finally:
-        print(f"\n[+] Dumped folder \"{folder_name}\" to {mbox_file_path}")
+        print("[+] Folder {:30s} dumped to {}".format('"'+folder_name+'"',mbox_file_path))
 
 
 def get_emails(accountObject=None, items_list=None, folder_name=None):
@@ -343,7 +343,7 @@ def dumpFolder(accountObject=None, folder_to_dump="Inbox", local_folder="dump"):
 
         dump_to_Mbox(folder_name=folder.name, mbox_file_path=mbox_file_path, messages=messages)
 
-    print("[=] All folders downloaded\n\n")
+    print("\n[=] All folders downloaded\n\n")
 
 
 if __name__ == "__main__":
