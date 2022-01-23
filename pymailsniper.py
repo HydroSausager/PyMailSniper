@@ -291,7 +291,7 @@ def get_emails(accountObject=None, items_list=None, folder_name=None):
     return messages
 
 
-def dumpFolder(accountObject=None, folder_to_dump="Inbox", local_folder="dump"):
+def dumper(accountObject=None, folder_to_dump="Inbox", local_folder="dump"):
     # брать папку из аргументов если dump all -d "папка куда"
 
     base_folder = None
@@ -324,6 +324,7 @@ def dumpFolder(accountObject=None, folder_to_dump="Inbox", local_folder="dump"):
     if base_folder.total_count != 0:
         folder_name = sanitaze_file_path(base_folder.name)
         mbox_file_path = f"./{local_folder}/{folder_name}.mbox"
+
         items = base_folder.all().only('id', 'changekey').order_by('-datetime_received')
         messages = get_emails(accountObject=accountObject, items_list=items, folder_name=base_folder.name)
         dump_to_Mbox(folder_name=base_folder.name, mbox_file_path=mbox_file_path, messages=messages)
@@ -340,7 +341,6 @@ def dumpFolder(accountObject=None, folder_to_dump="Inbox", local_folder="dump"):
 
         items = folder.all().only('id', 'changekey').order_by('-datetime_received')#[:10]
         messages = get_emails(accountObject=accountObject, items_list=items, folder_name=folder.name)
-
         dump_to_Mbox(folder_name=folder.name, mbox_file_path=mbox_file_path, messages=messages)
 
     print("\n[=] All folders downloaded\n\n")
@@ -442,7 +442,7 @@ if __name__ == "__main__":
     if parsed_arguments['modules'] == 'folders':
         print_folders(accountObj, tree_view=not args.absolute, count=args.count, root=args.root)
     elif parsed_arguments['modules'] == 'dump':
-        dumpFolder(accountObj, folder_to_dump=args.folder, local_folder=args.dump_folder)
+        dumper(accountObj, folder_to_dump=args.folder, local_folder=args.dump_folder)
     elif parsed_arguments['modules'] == 'emails':
         searchEmail(accountObj, parsed_arguments, loghandle)
     elif parsed_arguments['modules'] == 'attachment':
