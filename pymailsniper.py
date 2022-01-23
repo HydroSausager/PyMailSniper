@@ -90,11 +90,10 @@ def searchEmail(accountObject, params, loghandle):
     folder = params.get("folder")  # по умолчанию Inbox почему-то
     terms = params.get("terms")
     count = params.get("count")
-    # filtered_emails = list()
-    # output = params.get("output")
+    filtered_emails = list()
 
-    # mbox = mailbox.mbox("./z35.mbox")
-    # mbox.lock()
+    mbox = mailbox.mbox("./emails.mbox")
+    mbox.lock()
 
     if len(terms) > 1:
         termList = terms.split(',')
@@ -109,30 +108,26 @@ def searchEmail(accountObject, params, loghandle):
         # searchFolder = accountObject.root / 'Top of Information Store' / folder
         searchFolder = accountObject.inbox  # root / 'Корневой уровень хранилища'
 
-    if params.get("field") == 'body':
+    if params.get('field') == 'body':
         print(
-            '[+] Searching Email body for {} in {} Folder [+]'.format(terms, folder) + '\n')
+                '[+] Searching Email body for {} in {} Folder [+]'.format(terms, folder) + '\n')
         for term in termList:
-            searchResult = searchFolder.all().filter(body__contains=term)[:count]
+            filtered_emails.append(searchFolder.all().filter(body__contains=term)[:count])
     else:
         print(
             '[+] Searching Email Subject for {} in {} Folder [+]'.format(terms, folder) + '\n')
         for term in termList:
-            searchResult = searchFolder.all().filter(body__contains=term)
+            filtered_emails.append(searchFolder.all().filter(body__contains=term))
 
-    # for filtered_email in filtered_emails:
-    #     for email in filtered_email:
-    #         msg = mailbox.mboxMessage(email.mime_content)
-    #         mbox.add(msg)
-    #         mbox.flush()
-    # mbox.unlock()
+    # TODO: Разобраться с кодировками и нормально доставать email.text_body или email.unique_body
 
-    # Пока в файл запись. TODO: Разобраться с кодировками и нормально доставать email.text_body.
-    with open('emails.txt', 'w', encoding='UTF-8') as output_file:
-        for email in searchResult:
-            output_file.write(f"From: {email.author.email_address}\nDate: {email.datetime_received}\n"
-                              f"Subject: {email.subject}\nBody: {email.text_body}\n"
-                              f"***************************************************\n")
+    for filtered_email in filtered_emails:
+        for email in filtered_email:
+            msg = mailbox.mboxMessage(email.mime_content)
+            mbox.add(msg)
+            mbox.flush()
+
+    mbox.unlock()
 
 
 # Search for attachments based on search terms provided
