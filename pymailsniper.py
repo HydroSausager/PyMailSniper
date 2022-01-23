@@ -279,7 +279,10 @@ def dump_to_Mbox(folder_name=None, mbox_file_path=None, messages=[]):
         print(f"[-] Error while saving {folder_name} to {mbox_file_path}:")
         print(e)
     finally:
-        print("[+] Folder {:30s} dumped to {}".format('"' + folder_name + '"', mbox_file_path))
+        size = os.path.getsize(mbox_file_path)
+        size = size / (1024 * 1024)
+        print("[+] Folder {:30s} dumped to {} ({} emails {:.3f} MB)".format('"' + folder_name + '"', mbox_file_path,
+                                                                        str(len(messages)) , size))
 
 
 def get_emails(accountObject=None, items_list=None, folder_name=None):
@@ -301,7 +304,7 @@ def get_emails(accountObject=None, items_list=None, folder_name=None):
     return messages
 
 
-def dumper(accountObject=None, folder_to_dump="Inbox", local_folder="dump"):
+def dumper(accountObject=None, folder_to_dump="Inbox", local_folder="dump", emails_count=None):
     # брать папку из аргументов если dump all -d "папка куда"
 
     base_folder = None
@@ -336,6 +339,8 @@ def dumper(accountObject=None, folder_to_dump="Inbox", local_folder="dump"):
         mbox_file_path = f"./{local_folder}/{folder_name}.mbox"
 
         items = base_folder.all().only('id', 'changekey').order_by('-datetime_received')
+        if emails_count:
+            items = items[:emails_count]
         messages = get_emails(accountObject=accountObject, items_list=items, folder_name=base_folder.name)
         dump_to_Mbox(folder_name=base_folder.name, mbox_file_path=mbox_file_path, messages=messages)
 
@@ -350,6 +355,8 @@ def dumper(accountObject=None, folder_to_dump="Inbox", local_folder="dump"):
         mbox_file_path = f"./{local_folder}/{mbox_file_path}.mbox"
 
         items = folder.all().only('id', 'changekey').order_by('-datetime_received')  # [:10]
+        if emails_count:
+            items = items[:emails_count]
         messages = get_emails(accountObject=accountObject, items_list=items, folder_name=folder.name)
         dump_to_Mbox(folder_name=folder.name, mbox_file_path=mbox_file_path, messages=messages)
 
@@ -392,6 +399,8 @@ if __name__ == "__main__":
                              help='Folder to dump')
     dump_parser.add_argument('-d', '--dump-folder', action='store', default="dump",
                              help='Local folder to store .mbox dumps')
+    dump_parser.add_argument('-c', '--count', action='store', default=None, type=int,
+                             help='Count of N last emails in folder to dump')
 
     attach_parser = subparsers.add_parser(
         'attachment', help="List/Download Attachments", parents=[optional_parser])
@@ -443,8 +452,6 @@ if __name__ == "__main__":
         loghandle = loggerCreate(parsed_arguments)
     accountObj = acctSetup(parsed_arguments)
 
-    print([f.name for f in Message.FIELDS if f.is_searchable])
-
     if accountObj is None:
         print('[+] Could not connect to MailBox [+]')
         sys.exit()
@@ -454,7 +461,7 @@ if __name__ == "__main__":
     if parsed_arguments['modules'] == 'folders':
         print_folders(accountObj, tree_view=not args.absolute, count=args.count, root=args.root)
     elif parsed_arguments['modules'] == 'dump':
-        dumper(accountObj, folder_to_dump=args.folder, local_folder=args.dump_folder)
+        dumper(accountObj, folder_to_dump=args.folder, local_folder=args.dump_folder, emails_count=args.count)
     elif parsed_arguments['modules'] == 'emails':
         searchEmail(accountObj, parsed_arguments, loghandle)
     elif parsed_arguments['modules'] == 'attachment':
