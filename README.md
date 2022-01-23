@@ -19,7 +19,7 @@ PS:
 3) tqdm
 
 
-# Documentation extended
+# Usage
 
 1. Main Help
    
