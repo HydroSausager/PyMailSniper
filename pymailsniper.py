@@ -402,5 +402,3 @@ if __name__ == "__main__":
         searchAttachments(accountObj, parsed_arguments)
     elif parsed_arguments['modules'] == 'delegation':
         searchDelegates(parsed_arguments, fileparser)
-
-    get_all_contacts(account_object=accountObj)
