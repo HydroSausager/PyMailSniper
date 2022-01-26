@@ -393,7 +393,7 @@ def dumper(accountObject=None, params=None):
         # just IDs of emails in folder
 
         if not emails_count:
-            emails_count = base_folder.total_count
+            emails_count = folder.total_count
 
         all_items = list(
             folder.all().order_by('-datetime_received').values_list('id', 'changekey')[:emails_count])
