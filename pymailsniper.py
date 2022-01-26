@@ -390,7 +390,7 @@ def dumper(accountObject=None, params=None):
 
         messages_per_thread = [[]] * thread_count
 
-        # just IDs of emails in folder:
+        # just IDs of emails in folder
 
         if not emails_count:
             emails_count = base_folder.total_count
