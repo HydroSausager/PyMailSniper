@@ -2,6 +2,11 @@
 
 За основу взят проект от foofus-sph1nx - https://github.com/foofus-sph1nx/PyMailSniper
 
+**TOOL IS UNDER DEVELOPMENT**
+
+**A LOT OF BUGS MAY APPEAR**
+
+**ONLY FOLDER LISTING AND DUMPING IS STABLE RIGHT NOW**
 # Что и зачем
 
 Во время пентестов, компрометируя пользователя, никогда не будет лишним изучить его почту, 
@@ -16,7 +21,8 @@ PS:
 # В чем отличия от оригинала
 1) Выкачивание папок и писем в файлы формата mbox
 2) Нормальный листинг папок
-3) tqdm
+3) Многопоточность
+4) tqdm
 
 
 # Usage
