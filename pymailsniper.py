@@ -386,13 +386,9 @@ def dumper(accountObject=None, params=None):
         mbox_file_path = sanitaze_file_path(mbox_file_path)
         mbox_file_path = f"./{local_folder}/{mbox_file_path}.mbox"
 
-        threads_lists = []
-
-        messages_per_thread = [[]] * thread_count
-
         # just IDs of emails in folder
 
-        if not emails_count:
+        if not params.get('count'):
             emails_count = folder.total_count
 
         all_items = list(
@@ -401,13 +397,17 @@ def dumper(accountObject=None, params=None):
         if len(all_items) == 0:
             continue
 
-        messages_count_per_thread = int(math.ceil(len(all_items) / thread_count))
-
-        items_per_thread = []
+        threads_lists = []
 
         # its really better
         if len(all_items) <= 10:
             thread_count = 1
+
+        messages_per_thread = [[]] * thread_count
+
+        messages_count_per_thread = int(math.ceil(len(all_items) / thread_count))
+
+        items_per_thread = []
 
         # emails_count - 1 is eq to len(all_items)
         for i in range(0, emails_count - 1, messages_count_per_thread):
@@ -430,7 +430,6 @@ def dumper(accountObject=None, params=None):
         for t in threads_lists:
             t.join()
 
-        # messages = get_emails(accountObject=accountObject, items_list=items, folder_name=base_folder.name)
         dump_to_Mbox(folder_name=folder.name, mbox_file_path=mbox_file_path,
                      messages_from_threads=messages_per_thread)
 
