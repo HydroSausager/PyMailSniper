@@ -227,6 +227,14 @@ def searchDelegates(params, fparser):
                 print(e)
 
 
+def get_all_contacts(account_object):
+    """Returns all user email addresses"""
+
+    folder = account_object.root / 'AllContacts'
+
+    for person in folder.people():
+        print(person.email_address.email_address)
+
 # This is where we check if the address list file provided exists
 def file_parser(params):
     return_dict = {}
