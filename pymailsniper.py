@@ -108,13 +108,14 @@ def print_folders(accountObject, tree_view=False, count=False, root=False):
 
 
 # Search users email for specified terms
-def searchEmail(accountObject, params, loghandle):
+def searchEmail(accountObject, params):
     folder = params.get("folder")  # по умолчанию Inbox почему-то
     terms = params.get("terms")
     count = params.get("count")
+    output = params.get("output")
     filtered_emails = list()
 
-    mbox = mailbox.mbox("./emails.mbox")
+    mbox = mailbox.mbox(f"{output}.mbox")
     mbox.lock()
 
     if len(terms) > 1:
@@ -553,7 +554,7 @@ if __name__ == "__main__":
         # folder_to_dump=args.folder, local_folder=args.dump_folder, emails_count=args.count,
         # thread_count=args.threads)
     elif parsed_arguments['modules'] == 'emails':
-        searchEmail(accountObj, parsed_arguments, loghandle)
+        searchEmail(accountObj, parsed_arguments)
     elif parsed_arguments['modules'] == 'attachment':
         searchAttachments(accountObj, parsed_arguments)
     elif parsed_arguments['modules'] == 'delegation':
@@ -561,4 +562,6 @@ if __name__ == "__main__":
 
     print("[=] Took time: {:.3f} min\n\n".format((time.time() - start_time) / 60))
 
-# to-do get file sizes
+    # to-do get file sizes
+
+
