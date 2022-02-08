@@ -14,13 +14,13 @@ TODO: list emails (soon)
 
 ## Dump
 dump folders [-d, -f, -t] (1-2 threads is fine)
-TODO: dump contacts (simply write to .txt?)
-TODO: dump emails (by passing ids list?) 
-TODO: dump attachments
+### TODO: dump contacts (simply write to .txt?)
+### TODO: dump emails (by passing ids list?) 
+### TODO: dump attachments
 
 ## Search
 search emails [-f, --dump, -t ]
-TODO: search attachments
+### TODO: search attachments
 
 ## Autodiscover
 autodiscover (TODO: add multiple auth types, only ntlm for now)
