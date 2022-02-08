@@ -19,11 +19,13 @@ dump folders [-d, -f, -t] (1-2 threads is fine)
 ### TODO: dump attachments
 
 ## Search
-search emails [-f, --dump, -t ]
+search emails [-f, --dump, -t, --field]
 ### TODO: search attachments
+### TODO: fix --field subject search
 
 ## Autodiscover
-autodiscover (TODO: add multiple auth types, only ntlm for now)
+autodiscover 
+### TODO: add multiple auth types, only ntlm for now)
 
 # Что и зачем
 

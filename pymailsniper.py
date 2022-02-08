@@ -168,11 +168,14 @@ def searchEmail(accountObject, params):
             return 1
 
     emails_for_search = base_folder.all().order_by('-datetime_received').values_list('id', 'changekey')
+
+
     if where_to_search == 'body':
         print('\n[+] Searching Email body for {} in {} Folder [+]'.format(terms, base_folder.name) + '\n')
         for term in termList:
             found_emails.append(list(emails_for_search.filter(body__contains=term)))
     elif where_to_search == 'subject':
+        # TODO переделать поиск для этого
         print('\n[+] Searching Email Subject for {} in {} Folder [+]'.format(terms, base_folder.name) + '\n')
         for term in termList:
             found_emails.append(list(emails_for_search.filter(subject__contains=term)))
