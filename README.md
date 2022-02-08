@@ -10,7 +10,7 @@
 ## List 
 list folders [-a, -r, -pc]
 list contacts [-v, --gal] (--gal not tested)
-TODO: list emails (soon)
+### TODO: list emails (soon)
 
 ## Dump
 dump folders [-d, -f, -t] (1-2 threads is fine)
