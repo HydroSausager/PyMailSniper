@@ -201,14 +201,17 @@ def search_emails(accountObject, params):
         print('\n[+] Searching Email body for {} in {} Folder [+]'.format(terms, base_folder.name) + '\n')
         for term in termList:
             found_emails_IDs_not_checked.append(list(emails_for_search.filter(body__contains=term)))
-    # elif where_to_search == 'subject':
-    #     # TODO переделать поиск для этого
-    #     print('\n[+] Searching Email Subject for {} in {} Folder [+]'.format(terms, base_folder.name) + '\n')
-    #     for term in termList:
-    #         found_emails_IDs_not_checked.append(list(emails_for_search.filter(subject__contains=term)))
+    elif where_to_search == 'subject':
+        print('\n[+] Searching Email Subject for {} in "{}" Folder [+]'.format(terms, base_folder.name) + '\n')
+        for term in termList:
+            found_emails_IDs_not_checked.append(list(emails_for_search.filter(subject__contains=term)))
 
-    # making flat list (list of lists into list)
+    # making flat list (list of lists into list) and then converting to set for non duplicating
     found_emails_IDs_not_checked = set([item for sublist in found_emails_IDs_not_checked for item in sublist])
+
+    if len(found_emails_IDs_not_checked) == 0:
+        print(f"[=] Nothing found\n")
+        return
 
     # Used for non repeating allready found matches
     already_found_substrings = []
@@ -228,40 +231,42 @@ def search_emails(accountObject, params):
         # just removes \r, replacing \n to \\n and \S+ to " " (space)
         clear_message_text_body = sanitise_message_text_body(email.text_body)
 
-        # re_check is needed for excluding false-positives
-        re_check = [term.lower() in clear_message_text_body.lower() for term in termList]
+        if where_to_search == 'body':
+            # re_check is needed for excluding false-positive search results
+            re_check = [term.lower() in clear_message_text_body.lower() for term in termList]
 
-        # if any of terms not found in message text body, going next
-        if not any(re_check):
-            continue
+            # if any of terms not found by regex in message text body, going next
+            if not any(re_check):
+                continue
 
         try:
-            # searching by regex (\w+.{0,50}(term1|term2|term3).{0,50}\w+), returns up to 50 + %last_word_len% chars before and after terms
-            regex = '(\w+.{0,50}(' + "|".join(termList) + ').{0,50}\w+)'
+            if where_to_search == 'body':
+                # searching by regex (\w+.{0,50}(term1|term2|term3).{0,50}\w+), returns up to 50 + %last_word_len% chars before and after terms
+                regex = '(\w+.{0,50}(' + "|".join(termList) + ').{0,50}\w+)'
 
-            # searching with ignoring case and getting a list of substrings found by regex
-            found_substrings = re.findall(regex, clear_message_text_body, re.IGNORECASE)
-            found_substrings = [i[0] for i in found_substrings if i[0] not in already_found_substrings]
+                # searching with ignoring case and getting a list of substrings found by regex
+                found_substrings = re.findall(regex, clear_message_text_body, re.IGNORECASE)
+                found_substrings = [i[0] for i in found_substrings if i[0] not in already_found_substrings]
 
-            if len(found_substrings) == 0:
-                continue
+                if len(found_substrings) == 0:
+                    continue
+                    # Just how found matches will be printed later
+                matches_output = "".join(
+                    [f"\nMatch {index + 1}: \n...{match}...\n".replace('\\n \\n', '') for index, match in
+                     enumerate(found_substrings)])
+                # saving found matches for non repeating
+                already_found_substrings += found_substrings
+            elif where_to_search == 'subject':
+                # we have no text matches for subject, so printing first 100 chars of body
+                matches_output = clear_message_text_body[:100]
 
             # saving found emails (id,changekey) for later downloading
             found_checked_emails_IDs.append((email.id, email.changekey))
-
-            # Just how found matches will be printed later
-            matches_output = "".join(
-                [f"\nMatch {index + 1}: \n...{match}...\n".replace('\\n \\n', '') for index, match in
-                 enumerate(found_substrings)])
-
-            # saving found matches for non repeating
-            already_found_substrings += found_substrings
 
             # just getting output for print
             result_for_printing = get_search_output_from_email(email=email, matches_output=matches_output)
             print(result_for_printing)
             # writer.write(output)
-
 
         except Exception as e:
             print("[!] Exception while searching: ")
