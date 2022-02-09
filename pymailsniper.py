@@ -125,27 +125,53 @@ def list_folders(accountObject, params=None):  # tree_view=False, count=False, r
         print("\n[=] Done\n")
 
 
-def sanitize_email_body(body=None):
-    body = str(body)
-    return html2text.html2text(body)
-    # for i in range(10):
-    #     body = body.replace("\n\n",'\n')
-    # return body
+def get_search_output_from_email(email=None, matches_output=None):
+    sender = f"{email.sender.name} <{email.sender.email_address}>"
+    # author = f"{email.author.name} <{email.author.email_address}>"
+    recipients = "".join(
+        [f"{recipient.name} <{recipient.email_address}>, " for recipient in email.to_recipients])[:-2]
+    sent = email.datetime_sent
+    subject = email.subject
+    attach = email.has_attachments
+    output = f"""
+{'=' * 70}
+ID: {email.id}
 
+Sender:      {sender}
+Recipients:  {recipients}
+Sent:        {sent}
+Subject:     {subject}
+Attachments: {attach}
+
+{matches_output}
+    """
+    return output
+
+
+def sanitise_message_text_body(msg_text_body=None):
+    msg_text_body = msg_text_body.replace('\r', '').replace('\n\n', '\n').replace('\n \n', '\n').replace('\n', '\\n ')
+    msg_text_body = re.sub(r"\s{3,}", " ", msg_text_body)
+    return msg_text_body
+
+
+# TODO: use regex
 
 # Search users email for specified terms
-def searchEmail(accountObject, params):
+def search_emails(accountObject, params):
     search_folder = params.get("folder")  # default Inbox
     terms = params.get("terms")
-    count = params.get("count")  # find usage
+    # count = params.get("count")  # find usage
+    # adding .mbox extension if there is no this one
     mbox_output = params.get('dump')
-    # saving =
-    found_emails = list()
-    where_to_search = params.get('field')
+    mbox_output = mbox_output + '.mbox' if mbox_output and '.mbox' not in mbox_output else mbox_output
 
-    if mbox_output:
-        mbox = mailbox.mbox(f"{mbox_output}.mbox")
-        mbox.lock()
+    found_emails_IDs_not_checked = list()
+    where_to_search = params.get('field')
+    # TODO ADD len of result printing for regex
+
+    if mbox_output and os.path.isfile(mbox_output):
+        print(f"\n[!] File {mbox_output} already exist, exiting\n")
+        return
 
     if len(terms) > 1:
         termList = terms.split(',')
@@ -159,8 +185,10 @@ def searchEmail(accountObject, params):
         base_folder = accountObject.inbox
     elif search_folder.lower() == "sent":
         base_folder = accountObject.sent
-    elif search_folder.lower() == "all":
-        base_folder = accountObject.msg_folder_root
+    # TODO look all folders
+    #
+    # elif search_folder.lower() == "all":
+    #     base_folder = accountObject.msg_folder_root
     else:
         base_folder = findFolder(accountObject=accountObject, folder_to_find=search_folder)
         if not base_folder:
@@ -169,101 +197,85 @@ def searchEmail(accountObject, params):
 
     emails_for_search = base_folder.all().order_by('-datetime_received').values_list('id', 'changekey')
 
-
     if where_to_search == 'body':
         print('\n[+] Searching Email body for {} in {} Folder [+]'.format(terms, base_folder.name) + '\n')
         for term in termList:
-            found_emails.append(list(emails_for_search.filter(body__contains=term)))
-    elif where_to_search == 'subject':
-        # TODO переделать поиск для этого
-        print('\n[+] Searching Email Subject for {} in {} Folder [+]'.format(terms, base_folder.name) + '\n')
-        for term in termList:
-            found_emails.append(list(emails_for_search.filter(subject__contains=term)))
-
-    # TODO: Разобраться с кодировками и нормально доставать email.text_body или email.unique_body
+            found_emails_IDs_not_checked.append(list(emails_for_search.filter(body__contains=term)))
+    # elif where_to_search == 'subject':
+    #     # TODO переделать поиск для этого
+    #     print('\n[+] Searching Email Subject for {} in {} Folder [+]'.format(terms, base_folder.name) + '\n')
+    #     for term in termList:
+    #         found_emails_IDs_not_checked.append(list(emails_for_search.filter(subject__contains=term)))
 
     # making flat list (list of lists into list)
-    found_emails = set([item for sublist in found_emails for item in sublist])
+    found_emails_IDs_not_checked = set([item for sublist in found_emails_IDs_not_checked for item in sublist])
 
     # Used for non repeating allready found matches
-    allready_found_matches = []
+    already_found_substrings = []
 
     # for found_email_group in found_emails:
-    with open(datetime.datetime.today().strftime('Last_search_output.txt'), 'w', encoding='utf8') as writer:
-        for email in accountObject.fetch(found_emails,
-                                         only_fields=['text_body', 'cc_recipients', 'sender', 'to_recipients',
-                                                      'subject', 'datetime_sent', 'has_attachments']):
+    # with open(datetime.datetime.today().strftime('Last_search_output.txt'), 'w', encoding='utf8') as writer:
 
-            msg_text_body = email.text_body
-            msg_text_body = msg_text_body.replace('\r', '').replace('\n', '\\n ')
-            msg_text_body = re.sub(r"\s{3,}", " ", msg_text_body)
-            # re_check is needed for excluding false-positives
-            re_check = [term.lower() in msg_text_body.lower() for term in termList]
+    # just an iterator
+    found_emails_data = accountObject.fetch(found_emails_IDs_not_checked,
+                                            only_fields=['text_body', 'cc_recipients', 'sender', 'to_recipients',
+                                                         'subject', 'datetime_sent', 'has_attachments'])
 
-            if any(re_check):
-                regex = '(.{0,40}(' + "|".join(termList) + ').{0,50})'
-                try:
-                    sender = f"{email.sender.name} <{email.sender.email_address}>"
-                    # author = f"{email.author.name} <{email.author.email_address}>"
-                    recipients = "".join(
-                        [f"{recipient.name} <{recipient.email_address}>, " for recipient in email.to_recipients])[:-2]
-                    sent = email.datetime_sent
-                    subject = email.subject
-                    attach = email.has_attachments
+    found_checked_emails_IDs = []
 
-                    # searching by regex
-                    found_substrings = re.findall(regex, msg_text_body, re.IGNORECASE)
-                    found_substrings = [i[0] for i in found_substrings]
+    for email in found_emails_data:
 
-                    matches_for_removing = []
+        # just removes \r, replacing \n to \\n and \S+ to " " (space)
+        clear_message_text_body = sanitise_message_text_body(email.text_body)
 
-                    for match_index in range(len(found_substrings)):
-                        if found_substrings[match_index] in allready_found_matches:
-                            matches_for_removing.append(found_substrings[match_index])
+        # re_check is needed for excluding false-positives
+        re_check = [term.lower() in clear_message_text_body.lower() for term in termList]
 
-                    for for_remove in matches_for_removing:
-                        found_substrings.remove(for_remove)
+        # if any of terms not found in message text body, going next
+        if not any(re_check):
+            continue
 
-                    if len(found_substrings) != 0:
-                        matches_output = "".join(
-                            [f"Match {index + 1}:  {found_substrings[index]}..." + '\n' for index in
-                             range(len(found_substrings))])[:-1]
-                    else:
-                        continue
-                    output = f"""
-{'=' * 70}
-ID: {email.id}
+        try:
+            # searching by regex (\w+.{0,50}(term1|term2|term3).{0,50}\w+), returns up to 50 + %last_word_len% chars before and after terms
+            regex = '(\w+.{0,50}(' + "|".join(termList) + ').{0,50}\w+)'
 
-Sender:      {sender}
-Recipients:  {recipients}
-Sent:        {sent}
-Subject:     {subject}
-Attachments: {attach}
+            # searching with ignoring case and getting a list of substrings found by regex
+            found_substrings = re.findall(regex, clear_message_text_body, re.IGNORECASE)
+            found_substrings = [i[0] for i in found_substrings if i[0] not in already_found_substrings]
 
-{matches_output}
-    """
-                    # found_substring = found_substring.group(0)
-                    for match in found_substrings:
-                        allready_found_matches.append(match)
-                    print(output)
-                    writer.write(output)
+            if len(found_substrings) == 0:
+                continue
 
-                    if mbox_output:
-                        temp_email = list(
-                            accountObject.fetch([(email.id, email.changekey)], only_fields=['mime_content']))
-                        msg = mailbox.mboxMessage(temp_email[0].mime_content)
-                        mbox.add(msg)
-                        mbox.flush()
+            # saving found emails (id,changekey) for later downloading
+            found_checked_emails_IDs.append((email.id, email.changekey))
 
-                except Exception as e:
-                    print("[!] Exception while searching: ")
-                    print(e)
+            # Just how found matches will be printed later
+            matches_output = "".join(
+                [f"\nMatch {index + 1}: \n...{match}...\n".replace('\\n \\n', '') for index, match in
+                 enumerate(found_substrings)])
+
+            # saving found matches for non repeating
+            already_found_substrings += found_substrings
+
+            # just getting output for print
+            result_for_printing = get_search_output_from_email(email=email, matches_output=matches_output)
+            print(result_for_printing)
+            # writer.write(output)
+
+
+        except Exception as e:
+            print("[!] Exception while searching: ")
+            print(e)
+
     if mbox_output:
-        mbox.unlock()
+        found_emails_mimes = get_emails(accountObject=accountObject, email_ids_to_download=found_checked_emails_IDs,
+                                        tqdm_description="Downloading search results")
+        dump_to_Mbox(mbox_file_path=mbox_output, mimes_list=found_emails_mimes,
+                     tqdm_desctiption=f"[+] Saving found to {mbox_output}")
 
     with open('last_search.ids', 'w', encoding='utf8') as writer:
-        for email in found_emails:
-            writer.write(str(found_emails))
+        for email in found_emails_IDs_not_checked:
+            writer.write(str(found_emails_IDs_not_checked))
 
 
 # Search for attachments based on search terms provided
@@ -423,77 +435,85 @@ def print_logo():
 
 
 def findFolder(accountObject=None, folder_to_find=None):
+    # TODO: do someting if returned more than 1 folder
     found = list(accountObject.msg_folder_root.glob(folder_to_find))[0]
     return found
-    # for folder in accountObject.msg_folder_root.walk():
-    #     if folder.name.lower() == folder_to_find.lower():
-    #         return folder
-    # else:
-    #     return None
 
 
-def sanitaze_file_path(file_path=None):
+def sanitise_file_path(file_path=None):
     return re.sub(r"[^\sа-яА-ЯёЁ0-9a-zA-Z\]\[]+", " ", file_path)
 
 
-def dump_to_Mbox(folder_name=None, mbox_file_path=None, messages_from_threads=[]):
+def dump_to_Mbox(folder_name=None, mbox_file_path=None, mimes_list=[], tqdm_desctiption=""):
     try:
         # look at this magic (list of lists into flat list)
-        messages_from_threads = [item for sublist in messages_from_threads for item in sublist]
+        if type(mimes_list[0]) == list:
+            mimes_list = [item for sublist in mimes_list for item in sublist]
 
         mbox = mailbox.mbox(mbox_file_path)
         mbox.lock()
-        desc = f"[+] Saving folder \"{folder_name}\""
-        for message_index in tqdm.tqdm(range(len(messages_from_threads)), desc=desc, leave=False, unit="email"):
-            msg = mailbox.mboxMessage(messages_from_threads[message_index])
+        for message_index in tqdm.tqdm(range(len(mimes_list)), desc=tqdm_desctiption, leave=False, unit="email"):
+            msg = mailbox.mboxMessage(mimes_list[message_index])
             mbox.add(msg)
             mbox.flush()
         mbox.unlock()
     except Exception as e:
-        print(f"[-] Error while saving {folder_name} to {mbox_file_path}:")
+        print(f"[-] Error while saving to {mbox_file_path}:")
         print(e)
     finally:
         size = os.path.getsize(mbox_file_path)
         size = size / (1024 * 1024)
-        info = "({} emails {:.3f} MB)".format(str(len(messages_from_threads)), size)
-        print("[+] Folder {:25s} dumped to {} {:>18}".format('"' + folder_name + '"', mbox_file_path, info))
+        info = "({} emails {:.3f} MB)".format(str(len(mimes_list)), size)
+        if folder_name:
+            print("[+] Folder {:25s} dumped to {} {:>18}".format('"' + folder_name + '"', mbox_file_path, info))
+        else:
+            print("[+] Dumped to {} {:>18}".format(mbox_file_path, info))
 
 
-def get_emails(accountObject=None, items_list=None, folder_name=None, thread_index=None, params=None):
+def dump_thread_worker(accountObject=None, folder_name=None, thread_index=None, params=None,
+                       email_ids_to_download=None):
     global messages_per_thread
-    messages = []
-    # you can try with this parameter for perfomance:
-    # but in my case by one is fastest
+    exception_string = f"[!] Thread {thread_index} is reconnected!"
+    if folder_name:
+        tqdm_description = f"[+] Downloading \"{folder_name}\""
+        if params.get('threads') != 1:
+            tqdm_description += f' (Thr №{thread_index})'
+    else:
+        tqdm_description = ""
+
+    # ids of emails for downloading in "email_ids_to_download", list where mime_contents will be returned - "list_for_results"
+    messages_per_thread[thread_index] = get_emails(accountObject=accountObject,
+                                                   email_ids_to_download=email_ids_to_download,
+                                                   tqdm_description=tqdm_description, exception_string=exception_string)
+
+    accountObject.protocol.close()
+
+
+def get_emails(accountObject=None, email_ids_to_download=None, tqdm_description=None,
+               exception_string="Exception while downloading, reconnecting..."):
+    downloaded_messages = []
+    # you can play with "count_per_task" parameter for performance, but in my case by one is fastest
     count_per_task = 1
 
-    if folder_name:
-        desc = f"[+] Downloading \"{folder_name}\""
-        if params.get('threads') != 1:
-            desc += f' (Thr №{thread_index})'
-    else:
-        desc = ""
-
-    for i in tqdm.tqdm(range(0, len(items_list), count_per_task), desc=desc, leave=False, unit="email"):
+    for i in tqdm.tqdm(range(0, len(email_ids_to_download), count_per_task), desc=tqdm_description, leave=False,
+                       unit="email"):
         # takes list of N ids of emails and downloading its mime (plain .eml file)
-        # while True:
+        # while True needed if connection was lost:
         while True:
             try:
 
-                temp = items_list[i:i + count_per_task]
+                temp = email_ids_to_download[i:i + count_per_task]
                 for mime in accountObject.fetch(temp, only_fields=['mime_content']):
-                    messages.append(mime.mime_content)
+                    downloaded_messages.append(mime.mime_content)
                 break
 
             except Exception as e:
                 # accountObject = acctSetup(params)
                 # print(e)
-                print(f"[!] Thread {thread_index} is reconnected!")
+                print(exception_string)
                 continue
 
-    messages_per_thread[thread_index] = messages
-    accountObject.protocol.close()
-
-    return 0
+    return downloaded_messages
 
 
 def dumper(accountObject=None, params=None):
@@ -534,7 +554,7 @@ def dumper(accountObject=None, params=None):
     # to-do : filter folders without emails like calendar
 
     for folder in all_folders_2_dump:
-        # If messages in folder are present:
+        # If no messages in folder going next:
         if folder.total_count == 0:
             continue
 
@@ -547,7 +567,7 @@ def dumper(accountObject=None, params=None):
         mbox_file_path = "[" + folder.parent.name + "] " if folder.parent.name not in [base_folder.name,
                                                                                        accountObject.msg_folder_root.name] else ""
         mbox_file_path += folder.name
-        mbox_file_path = sanitaze_file_path(mbox_file_path)
+        mbox_file_path = sanitise_file_path(mbox_file_path)
         mbox_file_path = f"./{local_folder}/{mbox_file_path}.mbox"
 
         # just IDs of emails in folder
@@ -584,9 +604,9 @@ def dumper(accountObject=None, params=None):
             if len(items_per_thread[index]) == 0:
                 continue
             accountObjects[index] = acctSetup(parsed_arguments)
-            t = threading.Thread(target=get_emails,
+            t = threading.Thread(target=dump_thread_worker,
                                  kwargs={'accountObject': accountObjects[index],
-                                         'items_list': items_per_thread[index],
+                                         'email_ids_to_download': items_per_thread[index],
                                          'folder_name': folder.name, 'thread_index': index, 'params': params})
             threads_lists.append(t)
             t.start()
@@ -594,8 +614,9 @@ def dumper(accountObject=None, params=None):
         for t in threads_lists:
             t.join()
 
-        dump_to_Mbox(folder_name=folder.name, mbox_file_path=mbox_file_path,
-                     messages_from_threads=messages_per_thread)
+        dump_to_Mbox(mbox_file_path=mbox_file_path,
+                     mimes_list=messages_per_thread, folder_name=folder.name,
+                     tqdm_desctiption=f"[+] Saving folder \"{folder.name}\"")
 
     print("\n[=] All folders downloaded")
 
@@ -647,7 +668,8 @@ if __name__ == "__main__":
     list_subparser = subparsers.add_parser('list', help='perform list of objects', add_help=True)
     search_subparser = subparsers.add_parser('search', help='perform search of objects', add_help=True)
     dump_subparser = subparsers.add_parser('dump', help='perform downloading of objects', add_help=True)
-    autodiscover_subparser = subparsers.add_parser('autodiscover', help='Perform autodiscover request and exit', add_help=True)
+    autodiscover_subparser = subparsers.add_parser('autodiscover', help='Perform autodiscover request and exit',
+                                                   add_help=True)
 
     #
     # list action subparser args
@@ -803,7 +825,7 @@ if __name__ == "__main__":
     # list_folders(accountObject=accountObj, params=parsed_arguments)
     elif action == 'search':
         if action_object == 'emails':
-            searchEmail(accountObj, parsed_arguments)
+            search_emails(accountObj, parsed_arguments)
         if action_object == 'contacts':
             print('NOT IMPLEMENTED YET!')
         # list_contacts(accountObject=accountObj,params=parsed_arguments)
