@@ -669,7 +669,7 @@ def dumper(accountObject=None, params=None):
         items_per_thread = []
 
         # emails_count - 1 is eq to len(all_items)
-        for i in range(0, emails_count - 1, messages_count_per_thread):
+        for i in range(0, emails_count, messages_count_per_thread):
             items_per_thread.append(all_items[i:i + messages_count_per_thread])
 
         accountObjects = [None] * thread_count
