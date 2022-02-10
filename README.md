@@ -8,23 +8,40 @@
 
 # Avaliable options:
 ## List 
+```
 list folders [-a, -r, -pc]
 list contacts [-v, --gal] (--gal not tested)
-### TODO: list emails (soon)
-
+```
+TODO:
+```
+list emails (soon)
+```
 ## Dump
+```
 dump folders [-f folder's_name_on_server (all,sent,inbox also supported)] [--dump local_folder] [-t thread_count (1-2 threads is fine)] 
-### TODO: dump contacts (simply write to .txt?)
-### TODO: dump emails (by passing ids list?) 
-### TODO: dump attachments
-
+```
+TODO:
+```
+dump contacts (simply write to .txt?)
+dump emails (by passing ids list?) 
+dump attachments
+```
 ## Search
+```
 search emails [-f folder's_name_on_server (all,sent,inbox also supported)] [--dump local_folder] [--field subject,body] [-t term1,term2,term3]
-### TODO: search attachments
-
+```
+TODO: 
+```
+search attachments
+```
 ## Autodiscover
+```
 autodiscover 
-### TODO: add multiple auth types, only ntlm for now)
+```
+TODO:
+```
+add multiple auth types, only ntlm for now)
+```
 
 # Что и зачем
 
@@ -50,11 +67,11 @@ PS:
 9) Найди и выкачай ВСЕ письма (search emails -f all -d my_folder -t password,пароль,секрет)
 
 # Usage
-
+```bash
 python3 pymailsniper.py -h
 python3 pymailsniper.py dump -h
 python3 pymailsniper.py list -h
 python3 pymailsniper.py search -h
 python3 pymailsniper.py autodiscover -h
-
+```
 
