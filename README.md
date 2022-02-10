@@ -21,7 +21,6 @@ dump folders [-f folder's_name_on_server (all,sent,inbox also supported)] [--dum
 ## Search
 search emails [-f folder's_name_on_server (all,sent,inbox also supported)] [--dump local_folder] [--field subject,body] [-t term1,term2,term3]
 ### TODO: search attachments
-### TODO: fix --field subject search
 
 ## Autodiscover
 autodiscover 
