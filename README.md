@@ -13,13 +13,13 @@ list contacts [-v, --gal] (--gal not tested)
 ### TODO: list emails (soon)
 
 ## Dump
-dump folders [-d, -f, -t] (1-2 threads is fine)
+dump folders [-f folder's_name_on_server (all,sent,inbox also supported)] [--dump local_folder] [-t thread_count (1-2 threads is fine)] 
 ### TODO: dump contacts (simply write to .txt?)
 ### TODO: dump emails (by passing ids list?) 
 ### TODO: dump attachments
 
 ## Search
-search emails [-f, --dump, -t, --field]
+search emails [-f folder's_name_on_server (all,sent,inbox also supported)] [--dump local_folder] [--field subject,body] [-t term1,term2,term3]
 ### TODO: search attachments
 ### TODO: fix --field subject search
 
@@ -40,13 +40,15 @@ PS:
 Я не про кодер, пишу в первую очередь для себя, исправления и пожелания приветствуются)
 
 # В чем отличия от оригинала и прочее
-1) Выкачивание папок и писем в файлы формата mbox
-2) Нормальный и настраиваемый листинг папок
-3) Многопоточность + красивый tqdm (для dump folder режима)
-4) Нормальный и рабочий поиск по тексту письма с возможность дампа результатов в mbox (последние результаты в .txt)
-5) Сделай autodiscover запрос в один клик без бурпа и т.п.
-6) Оставь -p пустым чтобы не сохранять пароль в истории
-
+1) Выкачивание папок и писем в файлы формата mbox (dump folder, search emails ... --dump ...)
+2) Нормальный и настраиваемый листинг папок (list folders)
+3) Многопоточность (dump folders ... -t ...)
+4) Красивый tqdm
+5) Рабочий поиск по тексту письма с возможность дампа результатов (последние результаты в .txt)
+6) Сделай autodiscover запрос в один клик без бурпа и т.п.
+7) Оставь -p пустым чтобы не сохранять пароль в истории
+8) Выкачай весь ящик за раз (dump folders -f all -d ... -t ...)
+9) Найди и выкачай ВСЕ письма (search emails -f all -d my_folder -t password,пароль,секрет)
 
 # Usage
 
