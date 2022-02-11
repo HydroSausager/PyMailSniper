@@ -3,8 +3,7 @@ import re
 from exchangelib import Account, Credentials, Configuration, DELEGATE, Folder, FileAttachment, BaseProtocol, \
     NoVerifyHTTPAdapter, Message, Q, FaultTolerance, DistributionList
 from exchangelib.errors import UnauthorizedError, CASError
-import mailbox
-import html2text
+import shutil
 from requests_ntlm import HttpNtlmAuth
 import requests
 import requests.adapters
@@ -21,7 +20,6 @@ import time
 import getpass
 import threading
 import urllib3
-import lxml.etree as etree
 
 messages_per_thread = None
 
@@ -60,6 +58,8 @@ def acctSetup(params):
             server=server, credentials=Credentials(email, password), retry_policy=FaultTolerance(max_wait=3),
             max_connections=2)
 
+        # TODO:
+        # understand this
         if params.get('delegated'):
             account = Account(primary_smtp_address=shared,
                               autodiscover=False, config=config, access_type=DELEGATE)
@@ -157,8 +157,6 @@ def sanitise_message_text_body(msg_text_body=None):
     return msg_text_body
 
 
-# TODO: use regex
-
 def get_all_subfolders(folder=None):
     # Adding subfolders
     with_subfolders = [folder] + [folder for folder in folder.walk()]
@@ -172,6 +170,7 @@ def search_emails(accountObject=None, params=None):
     # count = params.get("count")  # find usage
     where_to_search = params.get('field')
     mbox_output = params.get('dump')
+
     # if we want to dump searching results we
     if search_folder.lower() == 'all' and mbox_output:
         mbox_output = f"./{mbox_output}/"
@@ -218,7 +217,8 @@ def search_emails(accountObject=None, params=None):
 
     # performing search actions against one folder
     # this for is commonly used for "all" options
-    writer = open(datetime.datetime.today().strftime(f'Search %Y-%m-%d %H-%M ({",".join(termList)}).txt'),'w',encoding='utf-8')
+    writer = open(datetime.datetime.today().strftime(f'Search %Y-%m-%d %H-%M ({",".join(termList)}).txt'), 'w',
+                  encoding='utf-8')
 
     for folder in all_folders:
 
@@ -327,8 +327,6 @@ def search_emails(accountObject=None, params=None):
             except Exception as e:
                 print("[!] Exception while searching: ")
                 print(e)
-
-
 
         if mbox_output and len(found_checked_emails_IDs) != 0:
             if search_folder.lower() == 'all':
@@ -696,7 +694,7 @@ def dumper(accountObject=None, params=None):
     print("\n[=] All folders downloaded")
 
 
-def do_autodiscover(params=None):
+def get_autodiscover(params=None):
     print("\n[+] Performing autodiscover request\n")
     server = params.get('server').replace("https://", "").replace("http://", "")
     email = params.get('email')
@@ -717,16 +715,10 @@ def do_autodiscover(params=None):
     response = requests.post(url, data=autodiscover_request_body, headers=headers, auth=HttpNtlmAuth(email, password),
                              verify=False)
 
-    print(response.text)
+    return response.text
 
 
-if __name__ == "__main__":
-    # This is where we start parsing arguments
-    banner = "# PyMailSniper [http://www.foofus.net] (C) sph1nx Foofus Networks <sph1nx@foofus.net>"
-    banner += "\n# Fork By HydroSausager\n"
-
-    print_logo()
-    print(banner)
+def get_args():
     parser = argparse.ArgumentParser(description='Python implementation of mailsniper',
                                      usage='python3 pymailsniper.py -s mail.server.com -e email@email.com action object [action options]')
 
@@ -743,10 +735,12 @@ if __name__ == "__main__":
     list_subparser = subparsers.add_parser('list', help='perform list of objects', add_help=True)
     search_subparser = subparsers.add_parser('search', help='perform search of objects', add_help=True)
     dump_subparser = subparsers.add_parser('dump', help='perform downloading of objects', add_help=True)
+    get_subparser = subparsers.add_parser('get', help='perform downloading of objects', add_help=True)
     autodiscover_subparser = subparsers.add_parser('autodiscover', help='Perform autodiscover request and exit',
                                                    add_help=True)
 
-    #
+    get_subparser.add_argument('object', choices=['autodiscover', 'oab', 'oab_contacts'], type=str)
+
     # list action subparser args
     list_subparser.add_argument('-a', '--absolute', action='store_true', default=False,
                                 help='Folders - folders absolute paths instead tree if arg is present')
@@ -789,6 +783,58 @@ if __name__ == "__main__":
     search_subparser.add_argument('object', choices=['folders', 'emails'], type=str)
     search_subparser.add_argument('--dump', action='store', default=None,
                                   help='Dump found to name.mbox file')
+
+    if len(sys.argv) == 1:
+        parser.print_help()
+        sys.exit()
+
+    args = parser.parse_args()
+    return args
+
+
+def get_oab_file(params=None):
+    server = params.get('server').replace("https://", "").replace("http://", "")
+    email = params.get('email')
+    password = params.get('password')
+
+    autodiscover = get_autodiscover(params=params)
+
+    session = requests.Session()
+    session.auth = HttpNtlmAuth(email, password)
+
+    regex = r'<OABUrl>(http.*)</OABUrl>'
+    oab_urls = re.findall(regex, autodiscover, re.IGNORECASE)
+
+    for oab_url in oab_urls:
+        print(f"[+] Found oab url: {oab_url}oab.xml")
+        try:
+            response = session.get(oab_url+'oab.xml', verify=False)
+            found = re.search(r'>(.+lzx)<', response.text)
+
+            if found:
+                lzx_filename = found.group(1)
+                print(f"[+] Found lzx url: {lzx_url}")
+                lzx_url = oab_url + lzx_filename
+                lzx_response = session.get(lzx_url, stream=True, verify=False)
+                if lzx_response.status_code == 200:
+                    with open(lzx_filename, 'wb') as f:
+                        lzx_response.raw.decode_content = True
+                        shutil.copyfileobj(lzx_response.raw, f)
+                        print(f"[+] Saved to: {lzx_filename}")
+                else:
+                    print(f"[!] Could not get: {oab_url}\n")
+        except:
+            print(f"[!] Could not get: {lzx_url}\n")
+    return
+
+
+if __name__ == "__main__":
+    # This is where we start parsing arguments
+    banner = "# PyMailSniper [http://www.foofus.net] (C) sph1nx Foofus Networks <sph1nx@foofus.net>"
+    banner += "\n# Fork By HydroSausager\n"
+
+    print_logo()
+    print(banner)
 
     # TODO: CLEAR THIS SHIT AND ADD DEBUG MODE
     # search_subparser.add_argument('--delegated', action="store",
@@ -833,39 +879,40 @@ if __name__ == "__main__":
     #
     # email_parser = subparsers.add_parser('emails', help="Search for Emails", parents=[optional_parser])
 
-    args = parser.parse_args()
+    args = get_args()
+
     parsed_arguments = vars(args)  # Convert Args to a Dictionary
-
-
-    if len(sys.argv) == 1:
-        parser.print_help()
-        sys.exit()
 
     print(f"[+] Email - {args.email}, server - {args.server}")
 
     if not args.password:
         args.password = getpass.getpass(prompt='Password: ', stream=None)
 
-    if parsed_arguments.get("galList"):
-        fileparser = file_parser(parsed_arguments)
+    # if parsed_arguments.get("galList"):
+    #     fileparser = file_parser(parsed_arguments)
 
     # if parsed_arguments.get("output"):
     #     loghandle = loggerCreate(parsed_arguments)
 
-    if parsed_arguments['action'] != 'autodiscover':
-        accountObj = acctSetup(parsed_arguments)
+    action = parsed_arguments['action']
+    action_object = parsed_arguments['object']
 
-        if accountObj is None:
-            print('[=] Could not connect to MailBox\n\n')
+    if action == 'get':
+        if parsed_arguments['object'] == 'autodiscover':
+            autodiscover_response = get_autodiscover(params=parsed_arguments)
+            print(autodiscover_response)
             sys.exit()
-    else:
-        do_autodiscover(params=parsed_arguments)
+        elif parsed_arguments['object'] == 'oab':
+            get_oab_file(params=parsed_arguments)
+            sys.exit()
+
+    accountObj = acctSetup(parsed_arguments)
+
+    if accountObj is None:
+        print('[=] Could not connect to MailBox\n\n')
         sys.exit()
 
     start_time = time.time()
-
-    action = parsed_arguments['action']
-    action_object = parsed_arguments['object']
 
     if action == 'list':
         if action_object == 'emails':
