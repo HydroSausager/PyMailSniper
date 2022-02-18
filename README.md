@@ -1,47 +1,11 @@
 # Инфо
 
-За основу взят проект от foofus-sph1nx - https://github.com/foofus-sph1nx/PyMailSniper (но от него там почти ничего не осталось)
+За основу взят проект от foofus-sph1nx - https://github.com/foofus-sph1nx/PyMailSniper 
+(но от него почти ничего не осталось)
 
 **TOOL IS UNDER DEVELOPMENT**
 
 **A LOT OF BUGS MAY APPEAR**
-
-# Avaliable options:
-## List 
-```
-list folders [-a, -r, -pc]
-list contacts [-v, --gal] (--gal not tested)
-```
-TODO:
-```
-list emails (soon)
-```
-## Dump
-```
-dump folders [-f folder's_name_on_server (all,sent,inbox also supported)] [--dump local_folder] [-t thread_count (1-2 threads is fine)] 
-```
-TODO:
-```
-dump contacts (simply write to .txt?)
-dump emails (by passing ids list?) 
-dump attachments
-```
-## Search
-```
-search emails [-f folder's_name_on_server (all,sent,inbox also supported)] [--dump local_folder] [--field subject,body] [-t term1,term2,term3]
-```
-TODO: 
-```
-search attachments
-```
-## Autodiscover
-```
-autodiscover 
-```
-TODO:
-```
-add multiple auth types, only ntlm for now)
-```
 
 # Что и зачем
 
@@ -51,20 +15,19 @@ add multiple auth types, only ntlm for now)
 
 Создается на основе Exchangelib - (https://github.com/ecederstrand/exchangelib)
 
-
 PS:
 Я не про кодер, пишу в первую очередь для себя, исправления и пожелания приветствуются)
 
 # В чем отличия от оригинала и прочее
-1) Выкачивание папок и писем в файлы формата mbox (dump folder, search emails ... --dump ...)
-2) Нормальный и настраиваемый листинг папок (list folders)
-3) Многопоточность (dump folders ... -t ...)
+1) Выкачивание папок и писем в файлы формата mbox
+2) Нормальный и настраиваемый листинг папок в ящике
+3) Многопоточность (dump folders)
 4) Красивый tqdm
 5) Рабочий поиск по тексту письма с возможность дампа результатов (последние результаты в .txt)
-6) Сделай autodiscover запрос в один клик без бурпа и т.п.
+6) Сделай autodiscover запрос или выкачай oab в один клик без бурпа и т.п.
 7) Оставь -p пустым чтобы не сохранять пароль в истории
 8) Выкачай весь ящик за раз (dump folders -f all -d ... -t ...)
-9) Найди и выкачай ВСЕ письма (search emails -f all -d my_folder -t password,пароль,секрет)
+9) Ищи среди ВСЕХ писем и дампь результаты (search emails -f all -d my_folder -t password,пароль,секрет)
 
 # Usage
 ```bash
@@ -74,4 +37,100 @@ python3 pymailsniper.py list -h
 python3 pymailsniper.py search -h
 python3 pymailsniper.py autodiscover -h
 ```
+
+# Avaliable modules:
+### Note
+```
+dont forget -e -s before 
+```
+
+## List 
+
+### list folder
+```
+list folders 
+	-a 	--absolute		(Print absolute paths) 
+	-r 	--root 			(Use "root" folder as root for printing insted of "Top Information Store")
+	-pc --print-count	(Print count of child folders and email)
+
+```
+
+### list contacts
+```
+list contacts 
+	-v	--verbose		(Print additional info about contacts)
+	-g	--gal			(Use GAL instead of "AllAccount" folder)
+```
+
+### Notes
+	-g	--gal 	IS NOT TESTED
+
+TODO:
+```
+list emails (is it useless?)
+```
+
+
+## Dump
+
+### dump emails
+```
+dump emails 
+	-f	--folder	folder's_name_on_server (all,sent,inbox also supported) (Default - Inbox ) 
+	-d	--dump 		local_folder			(Default - Dump %Y-%m-%d %H-%M )
+	-t 	--threads	thread_count 			(1-2 threads is fine)
+	-c	--count 	number					(count of last N emails in folder to dump)
+	-r	--recurive	(Used when we want to dump all fubfolders of folder specified in --folder arg)
+
+```
+
+### Notes
+	'dump folders' and 'dump emails' are equal
+
+TODO:
+```
+dump contacts (simply write to .txt?)
+dump attachments
+```
+
+
+## Search
+
+### search emails
+```
+search emails 
+	-f	--folder	folder's_name_on_server 	(all,sent,inbox also supported) (Default - Inbox )
+	-d	--dump 		dump found emails to mbox 	(default - False)
+	--field 		subject or body  			(where to search)				(Default - body)
+	-t	--terms		term1,term2,term3	(what to search separated by ,)			(Default - password)
+	-r	--recurive	(Used when we want to search all fubfolders of folder specified in --folder arg)
+
+```
+
+### Notes
+	Search results saves in users folder by default (text)
+TODO: 
+```
+search attachments
+```
+
+
+## Get
+
+## get autodiscover
+```
+get autodiscover	print and saves plain autodiscover response
+```
+
+## get oab
+```
+get oab				downloads "Offline Address Book" in .lzx format
+```
+TODO:
+```
+add multiple auth types, only ntlm for now)
+convert lzx to oab
+parse oab
+```
+
 

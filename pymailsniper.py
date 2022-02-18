@@ -79,13 +79,16 @@ def list_folders(accountObject, params=None):  # tree_view=False, count=False, r
     print_count = params.get('print_count')
 
     root_folder = accountObject.root if root else accountObject.msg_folder_root
-    # 'Top of Information Store'
+
+    filename = f"{params.get('user_folder')}/folders.txt"
 
     print('\n' + f'[+] Folder List for {params.get("email")}' + '\n')
 
     if tree_view and not print_count:
         print(root_folder.tree())
-        print("\n[=] Done\n")
+        with open(filename, 'w', encoding='utf8') as writer:
+            writer.write(root_folder.tree())
+        print(f'\n[=] Saved to "./{filename}"\n')
         return
     elif tree_view and print_count:
         tree = root_folder.tree() + "\n"  # .split("\n")
@@ -104,12 +107,15 @@ def list_folders(accountObject, params=None):  # tree_view=False, count=False, r
                 result = result.group(0)
                 tree = tree.replace(result, "{:50s} {}\n".format(result[:-1], folder_childs))
             except Exception as e:
-                print("[!] Exception during printint folders: ")
+                print("[!] Exception during printing folders: ")
                 print(e)
                 pass
 
+        with open(filename, 'w', encoding='utf8') as writer:
+            writer.write(tree)
+
         print(tree)
-        print("\n[=] Done\n")
+        print(f'\n[=] Saved to "./{filename}"\n')
         return
 
     if not tree_view:
@@ -151,6 +157,20 @@ Attachments: {attach}
     return output
 
 
+def create_user_folder(params=None):
+    email = params.get('email')
+    server = params.get('server')
+
+    folder_name = sanitise_filename(f"{email} ({server})")
+
+    if not os.path.isdir(folder_name):
+        os.mkdir(folder_name)
+        print(f'\n[+] User folder "{folder_name}" created')
+    else:
+        print(f'\n[+] User folder "{folder_name}" already exist')
+    return folder_name
+
+
 def sanitise_message_text_body(msg_text_body=None):
     msg_text_body = msg_text_body.replace('\r', '').replace('\n\n', '\n').replace('\n \n', '\n').replace('\n', '\\n ')
     msg_text_body = re.sub(r"\s{3,}", " ", msg_text_body)
@@ -169,26 +189,9 @@ def search_emails(accountObject=None, params=None):
     terms = params.get("terms")
     # count = params.get("count")  # find usage
     where_to_search = params.get('field')
-    mbox_output = params.get('dump')
+    user_folder = params.get('user_folder')
 
     # if we want to dump searching results we
-    if search_folder.lower() == 'all' and mbox_output:
-        mbox_output = f"./{mbox_output}/"
-        if os.path.isdir(mbox_output):
-            print(f"\n[-] Folder {mbox_output} allready exists, use another (-d)")
-            return 1
-        else:
-            os.mkdir(mbox_output)
-            print(f"\n[+] Folder \"{mbox_output}\" created\n")
-    else:
-        # adding .mbox extension if there is no this one
-        mbox_output = mbox_output + '.mbox' if mbox_output and '.mbox' not in mbox_output else mbox_output
-
-    # TODO ADD len of result printing for regex
-
-    if mbox_output and os.path.isfile(mbox_output):
-        print(f"\n[!] File {mbox_output} already exist, exiting\n")
-        return
 
     if len(terms) > 1:
         termList = terms.split(',')
@@ -196,6 +199,8 @@ def search_emails(accountObject=None, params=None):
         termList = terms[0].split(',')
     else:
         termList = terms
+
+    # TODO ADD len of result printing for regex
 
     # we are using lists with single element because of all option
     # when we have to check each folder separately in for cycle
@@ -205,20 +210,34 @@ def search_emails(accountObject=None, params=None):
         all_folders = [accountObject.sent]
     elif search_folder.lower() == "all":
         all_folders = get_all_subfolders(accountObject.msg_folder_root)
-        # skiping calendar and contacts because there is no email objects there
-        all_folders = [folder for folder in all_folders if folder not in (get_all_subfolders(accountObject.calendar))]
-        all_folders = [folder for folder in all_folders if folder not in (get_all_subfolders(accountObject.contacts))]
+        # skipping calendar and contacts because there is no email objects there
+        bad_folders = get_all_subfolders(accountObject.contacts) + get_all_subfolders(accountObject.calendar)
+        all_folders = [folder for folder in all_folders if folder not in bad_folders]
     else:
         # including base folder (where we are searching for subfolders)
         all_folders = [find_Folder(accountObject=accountObject, folder_to_find=search_folder)]
+        if params.get('recurse'):
+            all_folders += get_all_subfolders(all_folders[0])
         if not all_folders[0]:
             print(f"\n[-] Folder {search_folder} not found")
             return 1
 
-    # performing search actions against one folder
-    # this for is commonly used for "all" options
-    writer = open(datetime.datetime.today().strftime(f'Search %Y-%m-%d %H-%M ({",".join(termList)}).txt'), 'w',
-                  encoding='utf-8')
+    if params.get('dump'):
+        mbox_output = params.get('user_folder')
+        storage_pattern = datetime.datetime.today().strftime(
+            f'Search {search_folder} ({"".join(termList)}) %Y-%m-%d %H-%M')
+
+        # if we are dumping all or we have more than 1 folder, we make dir for a lot of mboxes
+        if search_folder.lower() == 'all' or len(all_folders) > 1:
+            mbox_output = f"./{mbox_output}/" + storage_pattern
+            os.mkdir(mbox_output)
+            print(f"\n[+] Folder \"{mbox_output}\" created\n")
+        else:
+            # if we searching in and dumping one folder - we just creating .mbox file in user folder
+            mbox_output = f'{mbox_output}/{storage_pattern}.mbox'
+
+    search_logfile = f'{user_folder}/{storage_pattern}.txt'
+    writer = open(search_logfile, 'w', encoding='utf-8')
 
     for folder in all_folders:
 
@@ -228,9 +247,9 @@ def search_emails(accountObject=None, params=None):
             continue
 
         if where_to_search == 'body':
-            print('\n[+] Searching Email body for {} in "{}" Folder [+]'.format(terms, folder.name))
+            print('[+] Searching Email body for {} in "{}" Folder [+]'.format(terms, folder.name))
         elif where_to_search == 'subject':
-            print('\n[+] Searching Email Subject for {} in "{}" Folder [+]'.format(terms, folder.name))
+            print('[+] Searching Email Subject for {} in "{}" Folder [+]'.format(terms, folder.name))
 
         # just a query what will be modified later when we chose where to search (body or subject)
         emails_for_search = folder.all().order_by('-datetime_received').values_list('id', 'changekey')
@@ -255,11 +274,6 @@ def search_emails(accountObject=None, params=None):
         if len(found_emails_IDs_not_checked) == 0:
             print(f"[=] Nothing found in \"{folder.name}\"\n")
             continue
-        else:
-            print(f"[+] Founded in folder {folder.name}:\n")
-
-        # for found_email_group in found_emails:
-        # with open(datetime.datetime.today().strftime('Last_search_output.txt'), 'w', encoding='utf8') as writer:
 
         # just an iterator
         found_emails_data = accountObject.fetch(found_emails_IDs_not_checked,
@@ -328,12 +342,12 @@ def search_emails(accountObject=None, params=None):
                 print("[!] Exception while searching: ")
                 print(e)
 
-        if mbox_output and len(found_checked_emails_IDs) != 0:
-            if search_folder.lower() == 'all':
+        if params.get('dump') and len(found_checked_emails_IDs) != 0:
+            if search_folder.lower() == 'all' or len(all_folders) > 1:
                 # Okay, don't try to understand bellow line, it works fine
                 mbox_filename = f"{''.join(['[' + parent + '] ' for parent in folder.parent.absolute.replace(accountObject.msg_folder_root.absolute + '/', '').split('/')])} {folder.name}" if folder.parent.absolute != accountObject.msg_folder_root.absolute else f"{folder.name}"
                 mbox_filename = sanitise_filename(mbox_filename)
-                mbox_full_path = mbox_output + mbox_filename + '.mbox'
+                mbox_full_path = mbox_output + '/' + mbox_filename + '.mbox'
 
             get_tqdm_description = f"Downloading search results for \"{folder.name}\" folder"
             dump_tqdm_description = f"[+] Saving found in \"{folder.name}\" folder to {mbox_full_path}"
@@ -344,9 +358,9 @@ def search_emails(accountObject=None, params=None):
                          tqdm_desctiption=dump_tqdm_description)
     writer.close()
 
-    with open('last_search.ids', 'w', encoding='utf8') as writer:
-        for email in found_emails_IDs_not_checked:
-            writer.write(str(found_emails_IDs_not_checked))
+    # with open('last_search.ids', 'w', encoding='utf8') as writer:
+    #     for email in found_emails_IDs_not_checked:
+    #         writer.write(str(found_emails_IDs_not_checked))
 
 
 # Search for attachments based on search terms provided
@@ -430,13 +444,13 @@ def list_contacts(accountObject=None, params=None):
     is_gal = params.get('gal')
     verbose = params.get('verbose')
     if is_gal:
-        folder = accountObject.contacts / 'GAL Contacts'
         print("\n[+] GAL Contacts")
         gal = accountObject.contacts / 'GAL Contacts'
         all_addresses = [
             e.email for c in gal.all()
             for e in c.email_addresses if not isinstance(c, DistributionList)
         ]
+        print(all_addresses)
     else:
         print("\n[+] AllContacts")
         folder = accountObject.root / 'AllContacts'
@@ -506,16 +520,17 @@ def print_logo():
 
 
 def find_Folder(accountObject=None, folder_to_find=None):
-    # TODO: do someting if returned more than 1 folder
+    # first we are searching in msg_folder_root directly
     found = accountObject.msg_folder_root.glob(folder_to_find)
     if len(found) == 0:
+        # if nothing found, we are found by any depth
         found = accountObject.msg_folder_root.glob(f"**/{folder_to_find}")
     found = list(found)[0]
     return found
 
 
 def sanitise_filename(file_path=None):
-    return re.sub(r"[^\sа-яА-ЯёЁ0-9a-zA-Z\]\[]+", " ", file_path)
+    return re.sub(r"[^\sа-яА-ЯёЁ0-9a-zA-Z\(\)\]\[\.\-\@]+", " ", file_path)
 
 
 def dump_to_Mbox(folder_name=None, mbox_file_path=None, mimes_list=[], tqdm_desctiption=""):
@@ -537,9 +552,11 @@ def dump_to_Mbox(folder_name=None, mbox_file_path=None, mimes_list=[], tqdm_desc
     finally:
         size = os.path.getsize(mbox_file_path)
         size = size / (1024 * 1024)
-        info = "({} emails {:.3f} MB)".format(str(len(mimes_list)), size)
+        size = "{:.2f}".format(size)
+        emails_count = "{:>3s}".format(str(len(mimes_list))) + ' emails'
+        info = "( {} {:>6s} MB )".format(emails_count, size)
         if folder_name:
-            print("[+] Folder {:25s} dumped to {} {:>18}".format('"' + folder_name + '"', mbox_file_path, info))
+            print("[+] Dumped folder\t{:25s} {:18s}".format('"' + folder_name + '"', info))
         else:
             print("[+] Dumped to {} {:>18}".format(mbox_file_path, info))
 
@@ -589,14 +606,14 @@ def get_emails(accountObject=None, email_ids_to_download=None, tqdm_description=
     return downloaded_messages
 
 
-def dumper(accountObject=None, params=None):
+def dump_folders(accountObject=None, params=None):
     # брать папку из аргументов если dump all -d "папка куда"
 
     base_folder = None
     folder_to_dump = params.get('folder')
-    local_folder = params.get('dump')
-    emails_count = params.get('count')
+    local_folder = params.get('user_folder') + '/' + params.get('dump')
 
+    emails_count = params.get('count')
     if folder_to_dump.lower() == "inbox":
         base_folder = accountObject.inbox
     elif folder_to_dump.lower() == "sent":
@@ -605,12 +622,14 @@ def dumper(accountObject=None, params=None):
         base_folder = accountObject.msg_folder_root
     else:
         base_folder = find_Folder(accountObject=accountObject, folder_to_find=folder_to_dump)
+        if params.get('recurse'):
+            base_folder += get_all_subfolders(base_folder[0])
         if not base_folder:
             print(f"\n[-] Folder {local_folder} not found")
             return 1
 
     if os.path.isdir(local_folder):
-        print(f"\n[-] Folder {local_folder} allready exists, use another (-d)")
+        print(f"\n[-] Folder {local_folder} already exists, use another (-d)")
         return 1
     else:
         try:
@@ -622,11 +641,11 @@ def dumper(accountObject=None, params=None):
             return 1
 
     all_folders_2_dump = get_all_subfolders(base_folder)
+
+    # filter for useless folders
+    bad_folders = get_all_subfolders(accountObject.calendar) + get_all_subfolders(accountObject.contacts)
     all_folders_2_dump = [folder for folder in all_folders_2_dump if
-                          folder not in (get_all_subfolders(accountObject.calendar))]
-    all_folders_2_dump = [folder for folder in all_folders_2_dump if
-                          folder not in (get_all_subfolders(accountObject.contacts))]
-    # TODO : filter folders without emails like calendar
+                          folder not in bad_folders]
 
     for folder in all_folders_2_dump:
         # If no messages in folder going next:
@@ -714,7 +733,9 @@ def get_autodiscover(params=None):
     """
     response = requests.post(url, data=autodiscover_request_body, headers=headers, auth=HttpNtlmAuth(email, password),
                              verify=False)
-
+    file = f"{params.get('user_folder')}/autodiscover.xml"
+    with open(file, 'w', encoding='utf8') as writer:
+        writer.write(response.text)
     return response.text
 
 
@@ -739,19 +760,19 @@ def get_args():
     autodiscover_subparser = subparsers.add_parser('autodiscover', help='Perform autodiscover request and exit',
                                                    add_help=True)
 
-    get_subparser.add_argument('object', choices=['autodiscover', 'oab', 'oab_contacts'], type=str)
+    get_subparser.add_argument('object', choices=['autodiscover', 'oab'], type=str)
 
     # list action subparser args
     list_subparser.add_argument('-a', '--absolute', action='store_true', default=False,
-                                help='Folders - folders absolute paths instead tree if arg is present')
+                                help='Folders - Print absolute paths')
     list_subparser.add_argument('-pc', '--print-count', action='store_true', default=False,
-                                help='Folders - print count of child folders and email if present')
+                                help='Folders - Print count of child folders and email')
     list_subparser.add_argument('-r', '--root', action='store_true', default=False,
                                 help='Folders - Use "root" folder as root for printing insted of "Top Information Store"')
     list_subparser.add_argument('-g', '--gal', action='store_true', default=False,
-                                help='Contacts - Use GAL insted of "AllAccount"')
+                                help='Contacts - Use GAL instead of "AllAccount" folder')
     list_subparser.add_argument('-v', '--verbose', action='store_true', default=False,
-                                help='Contacts - Print additional info about contacts"')
+                                help='Contacts - Print additional info about contacts')
     list_subparser.add_argument('object', choices=['folders', 'emails', 'contacts'], type=str)
 
     #
@@ -766,7 +787,8 @@ def get_args():
     dump_subparser.add_argument('-f', '--folder', action='store', default="Inbox",
                                 help='Folder name (on server) to dump, ("all", "Inbox", "Sent" also avaliable)')
     dump_subparser.add_argument('object', choices=['folders', 'emails', 'contacts'], type=str)
-
+    dump_subparser.add_argument('-r', '--recurse', action='store_true', default=False,
+                                help='Do recurse dump for custom folder (-f)')
     #
     # search action subparser args
     search_subparser.add_argument('-f', '--folder', action="store", dest="folder", metavar=' ',
@@ -781,8 +803,10 @@ def get_args():
                                   dest="field", help='Email field to search. Default is subject',
                                   choices=['subject', 'body'])
     search_subparser.add_argument('object', choices=['folders', 'emails'], type=str)
-    search_subparser.add_argument('--dump', action='store', default=None,
-                                  help='Dump found to name.mbox file')
+    search_subparser.add_argument('--dump', action='store_true', default=False,
+                                  help='Dump found to mbox file')
+    search_subparser.add_argument('-r', '--recurse', action='store_true', default=False,
+                                  help='Do recurse search if custom folder (-f) specified')
 
     if len(sys.argv) == 1:
         parser.print_help()
@@ -796,35 +820,43 @@ def get_oab_file(params=None):
     server = params.get('server').replace("https://", "").replace("http://", "")
     email = params.get('email')
     password = params.get('password')
-
-    autodiscover = get_autodiscover(params=params)
+    autodiscover_file = f'{params.get("user_folder")}/autodiscover.xml'
+    if isfile(autodiscover_file):
+        with open(autodiscover_file, 'r', encoding='utf8') as reader:
+            autodiscover = reader.read()
+    else:
+        autodiscover = get_autodiscover(params=params)
 
     session = requests.Session()
     session.auth = HttpNtlmAuth(email, password)
 
     regex = r'<OABUrl>(http.*)</OABUrl>'
     oab_urls = re.findall(regex, autodiscover, re.IGNORECASE)
-
+    print()
     for oab_url in oab_urls:
         print(f"[+] Found oab url: {oab_url}oab.xml")
+    print()
+
+    for oab_url in oab_urls:
         try:
-            response = session.get(oab_url+'oab.xml', verify=False)
+            response = session.get(oab_url + 'oab.xml', verify=False)
             found = re.search(r'>(.+lzx)<', response.text)
 
             if found:
                 lzx_filename = found.group(1)
-                print(f"[+] Found lzx url: {lzx_url}")
+                print(f"[+] Found lzx url: {oab_url + lzx_filename}")
                 lzx_url = oab_url + lzx_filename
                 lzx_response = session.get(lzx_url, stream=True, verify=False)
                 if lzx_response.status_code == 200:
-                    with open(lzx_filename, 'wb') as f:
+                    with open(f'{params.get("user_folder")}/{lzx_filename}', 'wb') as f:
                         lzx_response.raw.decode_content = True
                         shutil.copyfileobj(lzx_response.raw, f)
-                        print(f"[+] Saved to: {lzx_filename}")
+                        print(f'[+] Saved to: "./{params.get("user_folder")}/{lzx_filename}"\n')
+                    return
                 else:
-                    print(f"[!] Could not get: {oab_url}\n")
+                    print(f"[!] Could not get: {lzx_url}\n")
         except:
-            print(f"[!] Could not get: {lzx_url}\n")
+            print(f"[!] Could not get: {oab_url}\n")
     return
 
 
@@ -897,10 +929,15 @@ if __name__ == "__main__":
     action = parsed_arguments['action']
     action_object = parsed_arguments['object']
 
+    if parsed_arguments['server']:
+        parsed_arguments['user_folder'] = create_user_folder(params=parsed_arguments)
+
     if action == 'get':
         if parsed_arguments['object'] == 'autodiscover':
             autodiscover_response = get_autodiscover(params=parsed_arguments)
             print(autodiscover_response)
+            print(f"\n[=] Saved to \"./{parsed_arguments.get('user_folder')}/autodiscover.xml\"\n")
+
             sys.exit()
         elif parsed_arguments['object'] == 'oab':
             get_oab_file(params=parsed_arguments)
@@ -911,6 +948,8 @@ if __name__ == "__main__":
     if accountObj is None:
         print('[=] Could not connect to MailBox\n\n')
         sys.exit()
+
+
 
     start_time = time.time()
 
@@ -923,22 +962,20 @@ if __name__ == "__main__":
             list_folders(accountObject=accountObj, params=parsed_arguments)
     elif action == 'dump':
         if action_object == 'emails':
-            print('NOT IMPLEMENTED YET!')
+            # alias for "dump folder"
+            dump_folders(accountObj, params=parsed_arguments)
         if action_object == 'contacts':
             print('NOT IMPLEMENTED YET!')
         if action_object == 'folders':
-            dumper(accountObj, params=parsed_arguments)
+            dump_folders(accountObj, params=parsed_arguments)
 
-    # list_folders(accountObject=accountObj, params=parsed_arguments)
     elif action == 'search':
         if action_object == 'emails':
             search_emails(accountObj, parsed_arguments)
         if action_object == 'contacts':
             print('NOT IMPLEMENTED YET!')
-        # list_contacts(accountObject=accountObj,params=parsed_arguments)
         if action_object == 'folders':
             print('NOT IMPLEMENTED YET!')
-            # list_folders(accountObject=accountObj, params=parsed_arguments)
 
     # TODO: Разобраться с этим
     # elif parsed_arguments['modules'] == 'attachment':
