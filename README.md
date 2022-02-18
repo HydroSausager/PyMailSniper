@@ -49,8 +49,8 @@ dont forget -e -s before
 ### list folder
 ```
 list folders 
-	-a 	--absolute		(Print absolute paths) 
-	-r 	--root 			(Use "root" folder as root for printing insted of "Top Information Store")
+	-a 	--absolute	(Print absolute paths) 
+	-r 	--root		(Use "root" folder as root for printing insted of "Top Information Store")
 	-pc --print-count	(Print count of child folders and email)
 
 ```
@@ -58,8 +58,8 @@ list folders
 ### list contacts
 ```
 list contacts 
-	-v	--verbose		(Print additional info about contacts)
-	-g	--gal			(Use GAL instead of "AllAccount" folder)
+	-v	--verbose	(Print additional info about contacts)
+	-g	--gal		(Use GAL instead of "AllAccount" folder)
 ```
 
 ### Notes
@@ -77,10 +77,11 @@ list emails (is it useless?)
 ```
 dump emails 
 	-f	--folder	folder's_name_on_server (all,sent,inbox also supported) (Default - Inbox ) 
-	-d	--dump 		local_folder			(Default - Dump %Y-%m-%d %H-%M )
-	-t 	--threads	thread_count 			(1-2 threads is fine)
-	-c	--count 	number					(count of last N emails in folder to dump)
-	-r	--recurive	(Used when we want to dump all fubfolders of folder specified in --folder arg)
+	-d	--dump 		local_folder		(Default - Dump %Y-%m-%d %H-%M )
+	-t 	--threads	thread_count		(1-2 threads is fine)
+	-c	--count 	number			(count of last N emails in folder to dump)
+	-r	--recurive	( Used when we want to dump all fubfolders 
+				of folder specified in --folder arg )
 
 ```
 
@@ -93,18 +94,17 @@ dump contacts (simply write to .txt?)
 dump attachments
 ```
 
-
 ## Search
 
 ### search emails
 ```
 search emails 
-	-f	--folder	folder's_name_on_server 	(all,sent,inbox also supported) (Default - Inbox )
+	-f	--folder	folder's_name_on_server		(all,sent,inbox also supported) (Default - Inbox )
 	-d	--dump 		dump found emails to mbox 	(default - False)
-	--field 		subject or body  			(where to search)				(Default - body)
+	--field 		subject or body		(where to search)				(Default - body)
 	-t	--terms		term1,term2,term3	(what to search separated by ,)			(Default - password)
-	-r	--recurive	(Used when we want to search all fubfolders of folder specified in --folder arg)
-
+	-r	--recurive	( Used when we want to search in all fubfolders 
+				of folder specified in --folder arg )
 ```
 
 ### Notes
@@ -113,7 +113,6 @@ TODO:
 ```
 search attachments
 ```
-
 
 ## Get
 
