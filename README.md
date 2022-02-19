@@ -35,13 +35,15 @@ python3 pymailsniper.py -h
 python3 pymailsniper.py dump -h
 python3 pymailsniper.py list -h
 python3 pymailsniper.py search -h
-python3 pymailsniper.py autodiscover -h
+python3 pymailsniper.py get -h
 ```
 
 # Avaliable modules:
-### Note
+### General options
 ```
-dont forget -e -s before 
+	-e	--email	your email
+	-s	--server	server location (you can find all by "get autodiscover")
+	-p	--password	skip for secure input 
 ```
 
 ## List 
@@ -54,14 +56,12 @@ list folders
 	-pc --print-count	(Print count of child folders and email)
 
 ```
-
 ### list contacts
 ```
 list contacts 
 	-v	--verbose	(Print additional info about contacts)
 	-g	--gal		(Use GAL instead of "AllAccount" folder)
 ```
-
 ### Notes
 	-g	--gal 	IS NOT TESTED
 
@@ -84,7 +84,6 @@ dump emails
 				of folder specified in --folder arg )
 
 ```
-
 ### Notes
 	'dump folders' and 'dump emails' are equal
 
@@ -106,7 +105,6 @@ search emails
 	-r	--recurive	( Used when we want to search in all fubfolders 
 				of folder specified in --folder arg )
 ```
-
 ### Notes
 	Search results saves in users folder by default (text)
 TODO: 
@@ -118,16 +116,17 @@ search attachments
 
 ## get autodiscover
 ```
-get autodiscover	print and saves plain autodiscover response
+get autodiscover	looks for autodiscover locations, prints saves plain autodiscover.xml response
 ```
-
+### Note:
+	You can use this without -s (--remote-server)
+	by default it tries basic auth for possible autodiscover locations, then ntlm 
 ## get oab
 ```
 get oab				downloads "Offline Address Book" in .lzx format
 ```
 TODO:
 ```
-add multiple auth types, only ntlm for now)
 convert lzx to oab
 parse oab
 ```
