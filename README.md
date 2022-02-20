@@ -28,6 +28,7 @@ PS:
 7) Оставь -p пустым чтобы не сохранять пароль в истории
 8) Выкачай весь ящик за раз (dump folders -f all -d ... -t ...)
 9) Ищи среди ВСЕХ писем и дампь результаты (search emails -f all -d my_folder -t password,пароль,секрет)
+10) Поддержка прокси
 
 # Usage
 ```bash
@@ -44,6 +45,7 @@ python3 pymailsniper.py get -h
 	-e	--email	your email
 	-s	--server	server location (you can find all by "get autodiscover")
 	-p	--password	skip for secure input 
+	--proxy     Example: socks5://127.0.0.1:9150
 ```
 
 ## List 

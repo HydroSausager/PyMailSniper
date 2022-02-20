@@ -27,7 +27,9 @@ messages_per_thread = None
 
 # ignore certificate errors and suspend warnings
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
 BaseProtocol.HTTP_ADAPTER_CLS = NoVerifyHTTPAdapter
+
 BaseProtocol.USERAGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:97.0) Gecko/20100101 Firefox/97.0"
 
 
@@ -362,6 +364,23 @@ def search_emails(accountObject=None, params=None):
     # with open('last_search.ids', 'w', encoding='utf8') as writer:
     #     for email in found_emails_IDs_not_checked:
     #         writer.write(str(found_emails_IDs_not_checked))
+
+
+def proxy_check(params=None):
+    a_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+
+    proxy = re.search(r'\w+?://([A-Za-z_0-9\.-]+):(\d+)', params.get('proxy'))
+    proxy_addr = proxy.group(1)
+    proxy_port = int(proxy.group(2))
+
+    location = (proxy_addr, proxy_port)
+
+    result_of_check = a_socket.connect_ex(location)
+
+    if result_of_check == 0:
+        return True
+    else:
+        return False
 
 
 # Search for attachments based on search terms provided
@@ -743,8 +762,8 @@ def get_autodiscover(params=None):
                 """
 
     print("\n[+] Will check this domains:")
-    for index,url in enumerate(autodiscover_urls):
-        print("{:>5s}.\t{}".format(str(index),url))
+    for index, url in enumerate(autodiscover_urls):
+        print("{:>5s}.\t{}".format(str(index), url))
     else:
         print()
 
@@ -776,7 +795,7 @@ def get_autodiscover(params=None):
                     session = requests.Session()
                     session.auth = auth_type(email, password)
                     session.verify = False
-                    # session.proxies = {"https": '127.0.0.1:8080', "https": '127.0.0.1:8080'}
+                    session.trust_env = True
 
                     redirect_check = session.get(full_url, allow_redirects=False, timeout=1)
                     if redirect_check.status_code == 302:
@@ -806,6 +825,7 @@ def get_args():
                         dest="email", help='Email address of compromised user')
     parser.add_argument('-p', '--password', action="store",
                         dest="password", help='Password, leave empty for prompt')
+    parser.add_argument('--proxy', action="store", help="Example: socks5://127.0.0.1:9150")
 
     # subparsers init
     subparsers = parser.add_subparsers(title='action', dest='action')
@@ -814,8 +834,6 @@ def get_args():
     search_subparser = subparsers.add_parser('search', help='perform search of objects', add_help=True)
     dump_subparser = subparsers.add_parser('dump', help='perform downloading of objects', add_help=True)
     get_subparser = subparsers.add_parser('get', help='perform downloading of objects', add_help=True)
-    autodiscover_subparser = subparsers.add_parser('autodiscover', help='Perform autodiscover request and exit',
-                                                   add_help=True)
 
     get_subparser.add_argument('object', choices=['autodiscover', 'oab'], type=str)
 
@@ -973,9 +991,25 @@ if __name__ == "__main__":
     parsed_arguments = vars(args)  # Convert Args to a Dictionary
 
     print(f"[+] Email - {args.email}, server - {args.server}")
+    if args.proxy:
+        if not proxy_check(params=parsed_arguments):
+            print("\n[!] Proxy is down, exiting\n")
+            sys.exit()
+        else:
+            print(f'\nProxy {args.proxy} looks okay, setting env variables\n')
+            proxy = args.proxy
+            if proxy:
+                try:
+                    del os.environ['HTTP_PROXY']
+                    del os.environ['HTTPS_PROXY']
+                except:
+                    pass
+                os.environ['HTTP_PROXY'] = proxy
+                os.environ['HTTPS_PROXY'] = proxy
 
     if not args.password:
         args.password = getpass.getpass(prompt='Password: ', stream=None)
+
 
     # if parsed_arguments.get("galList"):
     #     fileparser = file_parser(parsed_arguments)
@@ -990,9 +1024,11 @@ if __name__ == "__main__":
 
     if action == 'get':
         if parsed_arguments['object'] == 'autodiscover':
-            get_autodiscover(params=parsed_arguments)
-            print(f"\n[=] Saved to \"./{parsed_arguments.get('user_folder')}/autodiscover.xml\"\n")
-
+            answer = get_autodiscover(params=parsed_arguments)
+            if answer:
+                print(f"\n[=] Saved to \"./{parsed_arguments.get('user_folder')}/autodiscover.xml\"\n")
+            else:
+                print(f"\n[!] Nothing found")
             sys.exit()
         elif parsed_arguments['object'] == 'oab':
             get_oab_file(params=parsed_arguments)
@@ -1035,7 +1071,8 @@ if __name__ == "__main__":
     #     searchAttachments(accountObj, parsed_arguments)
     # elif parsed_arguments['modules'] == 'delegation':
     #     searchDelegates(parsed_arguments, fileparser)
-
+    del os.environ['HTTP_PROXY']
+    del os.environ['HTTPS_PROXY']
     print("[=] Took time: {:.3f} min\n\n".format((time.time() - start_time) / 60))
 
     # to-do get file sizes
