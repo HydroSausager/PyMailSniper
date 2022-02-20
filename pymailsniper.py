@@ -23,6 +23,7 @@ import getpass
 import threading
 import urllib3
 
+
 class MyProxyAdapter(requests.adapters.HTTPAdapter):
     """An HTTP adapter that ignores TLS validation errors. Use at own risk."""
 
@@ -32,6 +33,7 @@ class MyProxyAdapter(requests.adapters.HTTPAdapter):
             'https': os.environ['HTTPS_PROXY']
         }
         return super().send(*args, **kwargs)
+
     def cert_verify(self, conn, url, verify, cert):
         # pylint: disable=unused-argument
         # We're overriding a method so we have to keep the signature
@@ -44,8 +46,6 @@ messages_per_thread = None
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 BaseProtocol.HTTP_ADAPTER_CLS = NoVerifyHTTPAdapter
-
-BaseProtocol.USERAGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:97.0) Gecko/20100101 Firefox/97.0"
 
 
 def loggerCreate(params):
@@ -801,7 +801,7 @@ def get_autodiscover(params=None):
     for method in ["https://", "http://"]:
         for url in autodiscover_urls:
 
-            headers = {"Host": url, 'Content-Type': 'text/xml'}
+            headers = {"Host": url, 'User-Agent': params.get('user_agent'), 'Content-Type': 'text/xml'}
 
             for auth_key, auth_type in auths.items():
                 try:
@@ -842,6 +842,8 @@ def get_args():
     parser.add_argument('-p', '--password', action="store",
                         dest="password", help='Password, leave empty for prompt')
     parser.add_argument('--proxy', action="store", help="Example: socks5://127.0.0.1:9150")
+    parser.add_argument('-ua', '--user-agent', action="store", help="User agent",
+                        default='"Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:97.0) Gecko/20100101 Firefox/97.0"')
 
     # subparsers init
     subparsers = parser.add_subparsers(title='action', dest='action')
@@ -1006,7 +1008,8 @@ if __name__ == "__main__":
 
     parsed_arguments = vars(args)  # Convert Args to a Dictionary
 
-    print(f"[+] Email - {args.email}, server - {args.server}")
+    BaseProtocol.USERAGENT = parsed_arguments.user_agent
+    # proxy stuff
     if args.proxy:
         if not proxy_check(params=parsed_arguments):
             print("\n[!] Proxy is down, exiting\n")
@@ -1024,9 +1027,11 @@ if __name__ == "__main__":
                 os.environ['HTTPS_PROXY'] = proxy
                 BaseProtocol.HTTP_ADAPTER_CLS = MyProxyAdapter
 
+    print(f"[+] Email - {args.email}, server - {args.server}")
+
+    #
     if not args.password:
         args.password = getpass.getpass(prompt='Password: ', stream=None)
-
 
     # if parsed_arguments.get("galList"):
     #     fileparser = file_parser(parsed_arguments)
