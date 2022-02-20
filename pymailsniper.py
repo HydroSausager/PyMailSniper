@@ -1008,7 +1008,7 @@ if __name__ == "__main__":
 
     parsed_arguments = vars(args)  # Convert Args to a Dictionary
 
-    BaseProtocol.USERAGENT = parsed_arguments.user_agent
+    BaseProtocol.USERAGENT = args.user_agent
     # proxy stuff
     if args.proxy:
         if not proxy_check(params=parsed_arguments):
