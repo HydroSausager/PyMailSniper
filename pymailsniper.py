@@ -478,6 +478,14 @@ def list_contacts(accountObject=None, params=None):
     """GAL NOT TESTED"""
     is_gal = params.get('gal')
     verbose = params.get('verbose')
+
+    if verbose:
+        file = f'{params.get("user_folder")}/contacts_verbose.txt'
+        file = open(file, 'w', encoding='utf8')
+    else:
+        file = f'{params.get("user_folder")}/contacts_emails.txt'
+        file = open(file, 'w', encoding='utf8')
+
     if is_gal:
         print("\n[+] GAL Contacts")
         gal = accountObject.contacts / 'GAL Contacts'
@@ -486,6 +494,7 @@ def list_contacts(accountObject=None, params=None):
             for e in c.email_addresses if not isinstance(c, DistributionList)
         ]
         print(all_addresses)
+
     else:
         print("\n[+] AllContacts")
         folder = accountObject.root / 'AllContacts'
@@ -494,6 +503,7 @@ def list_contacts(accountObject=None, params=None):
                      :-1] if person.email_addresses else person.email_address
             if not verbose:
                 print(emails)
+                file.write(emails + "\n")
                 continue
             display_name = person.display_name
             company_name = person.company_name if person.company_name else None
@@ -518,6 +528,9 @@ def list_contacts(accountObject=None, params=None):
             """Don't look at this, please"""
 
             print(verbose_output)
+            file.write(verbose_output + '\n')
+
+        file.close()
     print()
 
 
