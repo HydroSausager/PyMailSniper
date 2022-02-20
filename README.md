@@ -42,10 +42,11 @@ python3 pymailsniper.py get -h
 # Avaliable modules:
 ### General options
 ```
-	-e	--email	your email
+	-e	--email	        your email
 	-s	--server	server location (you can find all by "get autodiscover")
 	-p	--password	skip for secure input 
-	--proxy     Example: socks5://127.0.0.1:9150
+	--proxy                 Example: socks5://127.0.0.1:9150
+	-ua --useragent         Default - Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:97.0) Gecko/20100101 Firefox/97.0
 ```
 
 ## List 
@@ -53,19 +54,19 @@ python3 pymailsniper.py get -h
 ### list folder
 ```
 list folders 
-	-a 	--absolute	(Print absolute paths) 
-	-r 	--root		(Use "root" folder as root for printing insted of "Top Information Store")
-	-pc --print-count	(Print count of child folders and email)
+	-a 	--absolute	Print absolute paths 
+	-r 	--root		Use "root" folder as root for printing insted of "Top Information Store"
+	-pc --print-count	Print count of child folders and email
 
 ```
 ### list contacts
 ```
 list contacts 
-	-v	--verbose	(Print additional info about contacts)
-	-g	--gal		(Use GAL instead of "AllAccount" folder)
+	-v	--verbose	Print additional info about contacts
+	-g	--gal		Use GAL instead of "AllAccount" folder
 ```
 ### Notes
-	-g	--gal 	IS NOT TESTED
+	-g	--gal 	NOT TESTED
 
 TODO:
 ```
@@ -82,8 +83,8 @@ dump emails
 	-d	--dump 		local_folder		(Default - Dump %Y-%m-%d %H-%M )
 	-t 	--threads	thread_count		(1-2 threads is fine)
 	-c	--count 	number			(count of last N emails in folder to dump)
-	-r	--recurive	( Used when we want to dump all fubfolders 
-				of folder specified in --folder arg )
+	-r	--recurive	Used when we want to dump all fubfolders 
+				of folder specified in --folder arg 
 
 ```
 ### Notes
@@ -104,8 +105,8 @@ search emails
 	-d	--dump 		dump found emails to mbox 	(default - False)
 	--field 		subject or body		(where to search)				(Default - body)
 	-t	--terms		term1,term2,term3	(what to search separated by ,)			(Default - password)
-	-r	--recurive	( Used when we want to search in all fubfolders 
-				of folder specified in --folder arg )
+	-r	--recurive	Used when we want to search in all fubfolders 
+				of folder specified in --folder arg
 ```
 ### Notes
 	Search results saves in users folder by default (text)

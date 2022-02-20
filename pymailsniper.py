@@ -45,8 +45,6 @@ messages_per_thread = None
 # ignore certificate errors and suspend warnings
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-BaseProtocol.HTTP_ADAPTER_CLS = NoVerifyHTTPAdapter
-
 
 def loggerCreate(params):
     logger = logging.getLogger('pymailsniper')
@@ -114,7 +112,7 @@ def list_folders(accountObject, params=None):  # tree_view=False, count=False, r
         # if tree_view and count:
         for folder_object in root_folder.walk():
             # folder_childs = f' (folders: {folder_object.child_folder_count}, emails: {folder_object.total_count})'
-            folder_childs = f"emails: {folder_object.total_count}" if folder_object.total_count else ""
+            folder_childs = f"emails : {folder_object.total_count}" if folder_object.total_count else ""
             folder_childs += "\t" if folder_object.total_count and folder_object.child_folder_count else ""
             folder_childs += f'folders: {folder_object.child_folder_count}' if folder_object.child_folder_count else ""
 
@@ -489,6 +487,7 @@ def list_contacts(accountObject=None, params=None):
     if is_gal:
         print("\n[+] GAL Contacts")
         gal = accountObject.contacts / 'GAL Contacts'
+        gal_all = gal.all()
         all_addresses = [
             e.email for c in gal.all()
             for e in c.email_addresses if not isinstance(c, DistributionList)
@@ -856,7 +855,7 @@ def get_args():
                         dest="password", help='Password, leave empty for prompt')
     parser.add_argument('--proxy', action="store", help="Example: socks5://127.0.0.1:9150")
     parser.add_argument('-ua', '--user-agent', action="store", help="User agent",
-                        default='"Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:97.0) Gecko/20100101 Firefox/97.0"')
+                        default='Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:97.0) Gecko/20100101 Firefox/97.0')
 
     # subparsers init
     subparsers = parser.add_subparsers(title='action', dest='action')
@@ -933,36 +932,43 @@ def get_oab_file(params=None):
     else:
         autodiscover = get_autodiscover(params=params)
 
-    session = requests.Session()
-    session.auth = HttpNtlmAuth(email, password)
+    auths = {'Basic': HTTPBasicAuth, 'NTLM': HttpNtlmAuth}
 
     regex = r'<OABUrl>(http.*)</OABUrl>'
     oab_urls = re.findall(regex, autodiscover, re.IGNORECASE)
+
+    oab_urls = list(set(oab_urls))
     print()
     for oab_url in oab_urls:
         print(f"[+] Found oab url: {oab_url}oab.xml")
-    print()
 
-    for oab_url in oab_urls:
-        try:
-            response = session.get(oab_url + 'oab.xml', verify=False)
-            found = re.search(r'>(.+lzx)<', response.text)
+    for auth_key, auth_type in auths.items():
+        session = requests.Session()
+        session.auth = auth_type(email, password)
 
-            if found:
-                lzx_filename = found.group(1)
-                print(f"[+] Found lzx url: {oab_url + lzx_filename}")
-                lzx_url = oab_url + lzx_filename
-                lzx_response = session.get(lzx_url, stream=True, verify=False)
-                if lzx_response.status_code == 200:
-                    with open(f'{params.get("user_folder")}/{lzx_filename}', 'wb') as f:
-                        lzx_response.raw.decode_content = True
-                        shutil.copyfileobj(lzx_response.raw, f)
-                        print(f'[+] Saved to: "./{params.get("user_folder")}/{lzx_filename}"\n')
-                    return
-                else:
-                    print(f"[!] Could not get: {lzx_url}\n")
-        except:
-            print(f"[!] Could not get: {oab_url}\n")
+        session.verify = False
+        session.trust_env = True
+
+        for oab_url in oab_urls:
+            try:
+                response = session.get(oab_url + 'oab.xml')
+                found = re.search(r'>(.+lzx)<', response.text)
+
+                if found:
+                    lzx_filename = found.group(1)
+                    print(f"[+] Found lzx url: {oab_url + lzx_filename}")
+                    lzx_url = oab_url + lzx_filename
+                    lzx_response = session.get(lzx_url, stream=True, verify=False)
+                    if lzx_response.status_code == 200:
+                        with open(f'{params.get("user_folder")}/{lzx_filename}', 'wb') as f:
+                            lzx_response.raw.decode_content = True
+                            shutil.copyfileobj(lzx_response.raw, f)
+                            print(f'[+] Saved to: "./{params.get("user_folder")}/{lzx_filename}"\n')
+                        return
+                    else:
+                        print(f"[!] Could not get: {lzx_url}\n ( {auth_key} Auth )")
+            except:
+                print(f"[!] Could not get: {oab_url}\n")
     return
 
 
@@ -1039,7 +1045,8 @@ if __name__ == "__main__":
                 os.environ['HTTP_PROXY'] = proxy
                 os.environ['HTTPS_PROXY'] = proxy
                 BaseProtocol.HTTP_ADAPTER_CLS = MyProxyAdapter
-
+    else:
+        BaseProtocol.HTTP_ADAPTER_CLS = NoVerifyHTTPAdapter
     print(f"[+] Email - {args.email}, server - {args.server}")
 
     #
