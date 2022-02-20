@@ -168,7 +168,7 @@ def create_user_folder(params=None):
         os.mkdir(folder_name)
         print(f'\n[+] User folder "{folder_name}" created')
     else:
-        print(f'\n[+] User folder "{folder_name}" already exist')
+        print(f'\n[+] User folder "{folder_name}" exist')
     return folder_name
 
 
@@ -715,14 +715,22 @@ def dump_folders(accountObject=None, params=None):
 
 
 def get_autodiscover(params=None):
-    server = params.get('server').replace("https://", "").replace("http://", "") if params.get('server') else \
-    params.get('email').split('@')[1]
+    # if --server present, clearing from trash
+    # if only --email present, taking domain from it
+    server = params.get('server').replace("https://", "").replace("http://", "") \
+        if params.get('server') \
+        else \
+        params.get('email').split('@')[1]
 
     email = params.get('email')
     password = params.get('password')
+
+    # Auths
     auths = {'Basic': HTTPBasicAuth, 'NTLM': HttpNtlmAuth}
-    autodiscover_urls = [f"autodiscover.{server}"]
+
+    autodiscover_urls = []
     a = server.split('.')
+    autodiscover_urls += ['autodiscover.' + server[server.index(a[i]):] for i in range(len(a) - 1)]
     autodiscover_urls += [server[server.index(a[i]):] for i in range(len(a) - 1)]
 
     autodiscover_request_body = f"""
@@ -734,21 +742,34 @@ def get_autodiscover(params=None):
                 </Autodiscover>
                 """
 
-    print("\n[+] Looking for autodiscover location\n")
+    print("\n[+] Will check this domains:")
+    for index,url in enumerate(autodiscover_urls):
+        print("{:>5s}.\t{}".format(str(index),url))
+    else:
+        print()
 
-    for auth_key, auth_type in auths.items():
+    checked_urls = []
+    for url in autodiscover_urls:
+        try:
+            # Check if dns name is present
+            # If exception - it doesnt exist
+            socket.gethostbyname(url)
+            # if 'A' record exists, saving
+            checked_urls.append(url)
+            print(f"[+] Found A record for: {url}")
+        except:
+            continue
+
+    print()
+
+    autodiscover_urls = checked_urls
+    # first we trying https for secure
+    for method in ["https://", "http://"]:
         for url in autodiscover_urls:
-            try:
-                socket.gethostbyname(url)
-                print(f"[+] Found A record for: {url}\n")
-            except:
-                print(f"[-] Not found: {url}\n")
-                autodiscover_urls.remove(url)
-                continue
 
             headers = {"Host": url, 'Content-Type': 'text/xml'}
 
-            for method in ["https://", "http://"]:
+            for auth_key, auth_type in auths.items():
                 try:
                     full_url = f'{method}{url}/autodiscover/autodiscover.xml'
 
@@ -759,19 +780,20 @@ def get_autodiscover(params=None):
 
                     redirect_check = session.get(full_url, allow_redirects=False, timeout=1)
                     if redirect_check.status_code == 302:
-                        print(f"[!] Redirected from {full_url} to {redirect_check.next.url}\n")
+                        print(f"\n[!] Redirected from {full_url}\n to {redirect_check.next.url} ( {auth_key} auth )\n")
                         full_url = redirect_check.next.url
                     response = session.post(full_url,
                                             data=autodiscover_request_body, headers=headers,
                                             timeout=1)
                     if response.status_code != 200 or len(response.text) == 0:
                         continue
+                    print(f"[+] Got valid autodiscover answer from {full_url} ( {auth_key} auth )")
                     file = f"{params.get('user_folder')}/autodiscover.xml"
                     with open(file, 'w', encoding='utf8') as writer:
                         writer.write(response.text)
                     return response.text
                 except:
-                    print(f"[-] Could not get {full_url} ( {auth_key} auth )\n")
+                    print(f"[-] Could not get {full_url} ( {auth_key} auth )")
 
 
 def get_args():
@@ -968,8 +990,7 @@ if __name__ == "__main__":
 
     if action == 'get':
         if parsed_arguments['object'] == 'autodiscover':
-            autodiscover_response = get_autodiscover(params=parsed_arguments)
-            print(f'[+] Plain autodiscover response:\n\n{autodiscover_response}')
+            get_autodiscover(params=parsed_arguments)
             print(f"\n[=] Saved to \"./{parsed_arguments.get('user_folder')}/autodiscover.xml\"\n")
 
             sys.exit()
