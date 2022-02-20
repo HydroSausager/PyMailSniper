@@ -1010,7 +1010,7 @@ if __name__ == "__main__":
     if args.proxy:
         if not proxy_check(params=parsed_arguments):
             print("\n[!] Proxy is down, exiting\n")
-            # sys.exit()
+            sys.exit()
         else:
             print(f'\nProxy {args.proxy} looks okay, setting env variables and adapter\n')
             proxy = args.proxy
