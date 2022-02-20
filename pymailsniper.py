@@ -23,6 +23,21 @@ import getpass
 import threading
 import urllib3
 
+class MyProxyAdapter(requests.adapters.HTTPAdapter):
+    """An HTTP adapter that ignores TLS validation errors. Use at own risk."""
+
+    def send(self, *args, **kwargs):
+        kwargs['proxies'] = {
+            'http': os.environ['HTTP_PROXY'],
+            'https': os.environ['HTTPS_PROXY']
+        }
+        return super().send(*args, **kwargs)
+    def cert_verify(self, conn, url, verify, cert):
+        # pylint: disable=unused-argument
+        # We're overriding a method so we have to keep the signature
+        super().cert_verify(conn=conn, url=url, verify=False, cert=cert)
+
+
 messages_per_thread = None
 
 # ignore certificate errors and suspend warnings
@@ -801,6 +816,7 @@ def get_autodiscover(params=None):
                     if redirect_check.status_code == 302:
                         print(f"\n[!] Redirected from {full_url}\n to {redirect_check.next.url} ( {auth_key} auth )\n")
                         full_url = redirect_check.next.url
+                    del redirect_check
                     response = session.post(full_url,
                                             data=autodiscover_request_body, headers=headers,
                                             timeout=1)
@@ -994,9 +1010,9 @@ if __name__ == "__main__":
     if args.proxy:
         if not proxy_check(params=parsed_arguments):
             print("\n[!] Proxy is down, exiting\n")
-            sys.exit()
+            # sys.exit()
         else:
-            print(f'\nProxy {args.proxy} looks okay, setting env variables\n')
+            print(f'\nProxy {args.proxy} looks okay, setting env variables and adapter\n')
             proxy = args.proxy
             if proxy:
                 try:
@@ -1006,6 +1022,7 @@ if __name__ == "__main__":
                     pass
                 os.environ['HTTP_PROXY'] = proxy
                 os.environ['HTTPS_PROXY'] = proxy
+                BaseProtocol.HTTP_ADAPTER_CLS = MyProxyAdapter
 
     if not args.password:
         args.password = getpass.getpass(prompt='Password: ', stream=None)
@@ -1071,8 +1088,11 @@ if __name__ == "__main__":
     #     searchAttachments(accountObj, parsed_arguments)
     # elif parsed_arguments['modules'] == 'delegation':
     #     searchDelegates(parsed_arguments, fileparser)
-    del os.environ['HTTP_PROXY']
-    del os.environ['HTTPS_PROXY']
+    try:
+        del os.environ['HTTP_PROXY']
+        del os.environ['HTTPS_PROXY']
+    except:
+        pass
     print("[=] Took time: {:.3f} min\n\n".format((time.time() - start_time) / 60))
 
     # to-do get file sizes
