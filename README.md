@@ -119,11 +119,11 @@ dump emails
 
 2. Dump last 100 emails in Inbox folder to local folder mine_dump (no -f because `Inbox is default`)
 
-`python3 pymailsniper.py -e user@example.com -s exchange.example.com dump -f all -d mine_dump`
+`python3 pymailsniper.py -e user@example.com -s exchange.example.com dump emails -f all -d mine_dump`
 
 3. Dump folder "Folder" and all it's subfolders using 2 "threads":
 
-`python3 pymailsniper.py -e user@example.com -s exchange.example.com dump -f Folder -r -t 2`
+`python3 pymailsniper.py -e user@example.com -s exchange.example.com dump emails -f Folder -r -t 2`
 
 TODO:
 ```
