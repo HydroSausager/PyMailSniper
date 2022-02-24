@@ -115,7 +115,7 @@ dump emails
 #### Examples:
 1. Dump every folder using LM:NT hash
 
-`python3 pymailsniper.py -e user@example.com -nt -p AAD3B435B51404EEAAD3B435B51404EE:AAD3B435B51404EEAAD3B435B51404EE -s exchange.example.com dump -f all`
+`python3 pymailsniper.py -e user@example.com -nt -p AAD3B435B51404EEAAD3B435B51404EE:AAD3B435B51404EEAAD3B435B51404EE -s exchange.example.com dump emails -f all`
 
 2. Dump last 100 emails in Inbox folder to local folder mine_dump (no -f because `Inbox is default`)
 
