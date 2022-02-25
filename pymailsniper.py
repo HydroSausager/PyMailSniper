@@ -680,9 +680,9 @@ def dump_folders(accountObject=None, params=None):
 
     emails_count = params.get('count')
     if folder_to_dump.lower() == "inbox":
-        base_folder = accountObject.inbox
+        base_folder = [accountObject.inbox]
     elif folder_to_dump.lower() == "sent":
-        base_folder = accountObject.sent
+        base_folder = [accountObject.sent]
     elif folder_to_dump.lower() == "all":
         base_folder = [accountObject.msg_folder_root]
         params['recurse'] = True
