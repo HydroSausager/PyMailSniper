@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import re
 import socket
+import gc
 from exchangelib import Account, Credentials, Configuration, DELEGATE, Folder, FileAttachment, BaseProtocol, \
     NoVerifyHTTPAdapter, Message, Q, FaultTolerance, DistributionList, NTLM
 from exchangelib.errors import UnauthorizedError, CASError
@@ -22,6 +23,7 @@ import time
 import getpass
 import threading
 import urllib3
+import colorama
 
 
 class MyProxyAdapter(requests.adapters.HTTPAdapter):
@@ -46,49 +48,27 @@ messages_per_thread = None
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 
-def loggerCreate(params):
-    logger = logging.getLogger('pymailsniper')
-    logger.setLevel(logging.DEBUG)
-
-    # Output response to a File
-    filename = logging.FileHandler(params.get("output"))
-    filename.setLevel(logging.DEBUG)
-    logger.addHandler(filename)
-
-    # Output response to Screen
-    screenOutput = logging.StreamHandler(sys.stdout)
-    screenOutput.setLevel(logging.DEBUG)
-    logger.addHandler(screenOutput)
-
-    return logger
-
-
 # Function to setup an Exchangelib Account object to be used throughout the code
-def acctSetup(params):
-    server = params.get('server')
-    email = params.get('email')
-    password = params.get('password')
+def account_Setup(params):
     shared = params.get('delegated')
-    do_ntlm = params.get('ntlm')
+    config_kwargs = {'server': params['server'],
+                      'credentials': Credentials(params['email'], params['password']),
+                      'retry_policy': FaultTolerance(max_wait=3),
+                      'max_connections': 2
+                      }
+    if params['ntlm']:
+        config_kwargs['auth_type'] = NTLM
 
-    # TODO: delete NTLM
+    config = Configuration(**config_kwargs)
+
     try:
-        if do_ntlm:
-            config = Configuration(
-                server=server, credentials=Credentials(email, password), retry_policy=FaultTolerance(max_wait=3),
-                max_connections=2, auth_type=NTLM)
-        else:
-            config = Configuration(
-                server=server, credentials=Credentials(email, password), retry_policy=FaultTolerance(max_wait=3),
-                max_connections=2)
-
         # TODO:
         # understand this
         if params.get('delegated'):
             account = Account(primary_smtp_address=shared,
                               autodiscover=False, config=config, access_type=DELEGATE)
         else:
-            account = Account(primary_smtp_address=email,
+            account = Account(primary_smtp_address=params['email'],
                               autodiscover=False, config=config, access_type=DELEGATE)
 
         return account
@@ -663,7 +643,7 @@ def get_emails(accountObject=None, email_ids_to_download=None, tqdm_description=
                 break
 
             except Exception as e:
-                # accountObject = acctSetup(params)
+                # accountObject = account_Setup(params)
                 # print(e)
                 print(exception_string)
                 continue
@@ -674,7 +654,6 @@ def get_emails(accountObject=None, email_ids_to_download=None, tqdm_description=
 def dump_folders(accountObject=None, params=None):
     # брать папку из аргументов если dump all -d "папка куда"
 
-    base_folder = None
     folder_to_dump = params.get('folder')
     local_folder = params.get('user_folder') + '/' + params.get('dump')
 
@@ -719,11 +698,6 @@ def dump_folders(accountObject=None, params=None):
     all_folders_2_dump = [folder for folder in all_folders_2_dump if folder.total_count != 0]
 
     for folder in all_folders_2_dump:
-        # If no messages in folder going next:
-
-        global messages_per_thread
-
-        thread_count = params.get('threads')
 
         # it works
         mbox_filename = f"{''.join(['[' + parent + '] ' for parent in folder.parent.absolute.replace(accountObject.msg_folder_root.absolute + '/', '').split('/')])} {folder.name}" if folder.parent.absolute != accountObject.msg_folder_root.absolute else f"{folder.name}"
@@ -731,46 +705,63 @@ def dump_folders(accountObject=None, params=None):
         mbox_filename = sanitise_filename(mbox_filename)
         mbox_file_path = f"./{local_folder}/{mbox_filename}.mbox"
 
-        # just IDs of emails in folder
-
+        # cutter for all_items
         if not params.get('count'):
             emails_count = folder.total_count
 
+        # list of (id,changekey) of emails in current folder
         all_items = list(
             folder.all().order_by('-datetime_received').values_list('id', 'changekey')[:emails_count])
 
+        # if folder suddenly becomes empty, skipping
         if len(all_items) == 0:
             continue
 
+        """Threads prep START"""
         threads_lists = []
-
-        # its really better
+        thread_count = params.get('threads')
+        # using one thread for downloading if folder has less than 10 emails
         if len(all_items) <= 10:
             thread_count = 1
 
+        # We are storing emails mimes in global variable
+        global messages_per_thread
         messages_per_thread = [[]] * thread_count
+        # How much we want to download emails by one thread
+        messages_per_thread_count = int(math.ceil(len(all_items) / thread_count))
 
-        messages_count_per_thread = int(math.ceil(len(all_items) / thread_count))
-
+        # list of (id,changekey) lists for downloading
         items_per_thread = []
 
-        # emails_count - 1 is eq to len(all_items)
-        for i in range(0, emails_count, messages_count_per_thread):
-            items_per_thread.append(all_items[i:i + messages_count_per_thread])
+        # cutting into chunks
+        for i in range(0, emails_count, messages_per_thread_count):
+            items_per_thread.append(all_items[i:i + messages_per_thread_count])
 
+        # Every thread uses it's own connection
         accountObjects = [None] * thread_count
 
+        """ Threads prep END """
+
+        """ Threads init START """
         for index in range(thread_count):
-            # one connection per thread
+            # i don't remember why this if was added, don't touch
             if len(items_per_thread[index]) == 0:
                 continue
-            accountObjects[index] = acctSetup(args)
+            # Creating connection for thread
+            accountObjects[index] = account_Setup(params)
+
+            thread_kwargs = {'accountObject': accountObjects[index],
+                             'email_ids_to_download': items_per_thread[index],
+                             'folder_name': folder.name,
+                             'thread_index': index,
+                             'params': params}
+
             t = threading.Thread(target=dump_thread_worker,
-                                 kwargs={'accountObject': accountObjects[index],
-                                         'email_ids_to_download': items_per_thread[index],
-                                         'folder_name': folder.name, 'thread_index': index, 'params': params})
+                                 kwargs=thread_kwargs)
             threads_lists.append(t)
             t.start()
+
+        """ Thread init stop """
 
         for t in threads_lists:
             t.join()
@@ -778,6 +769,10 @@ def dump_folders(accountObject=None, params=None):
         dump_to_Mbox(mbox_file_path=mbox_file_path,
                      mimes_list=messages_per_thread, folder_name=folder.name,
                      tqdm_desctiption=f"[+] Saving folder \"{folder.name}\"")
+
+        # deleting emails mimes from memory
+        del messages_per_thread
+        gc.collect()
 
     print("\n[=] All folders downloaded")
 
@@ -1213,7 +1208,7 @@ if __name__ == "__main__":
         print('\n[!] Please specify server! Exiting.\n')
         sys.exit()
 
-    accountObj = acctSetup(args)
+    accountObj = account_Setup(args)
 
     if accountObj is None:
         print('[=] Could not connect to MailBox\n\n')
