@@ -65,9 +65,9 @@ How it works look at line 25: https://github.com/jborean93/ntlm-auth/blob/master
 ### list folder
 ```
 list folders 
-        -a 	    --absolute	    Print absolute paths 
-        -r 	    --root	    Use "root" folder as root for printing insted of "Top Information Store"
-        -pc     --print-count   Print count of child folders and email
+        -a  --absolute	    Print absolute paths 
+        -r  --root	    Use "root" folder as root for printing insted of "Top Information Store"
+        -pc --print-count   Print count of child folders and email
 
 ```
 #### Example:
@@ -119,7 +119,7 @@ dump emails
 
 2. Dump last 100 emails in Inbox folder to local folder mine_dump (no -f because `Inbox is default`)
 
-`python3 pymailsniper.py -e user@example.com -s exchange.example.com dump emails -f all -d mine_dump`
+`python3 pymailsniper.py -e user@example.com -s exchange.example.com dump emails -f all -d mine_dump -c 100`
 
 3. Dump folder "Folder" and all it's subfolders using 2 "threads":
 
