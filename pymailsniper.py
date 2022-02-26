@@ -13,7 +13,6 @@ import requests.adapters
 import mailbox
 import argparse
 import sys
-import logging
 import os
 import datetime
 from os.path import isfile
@@ -24,6 +23,7 @@ import getpass
 import threading
 import urllib3
 import colorama
+from colorama import Fore, Style
 
 
 class MyProxyAdapter(requests.adapters.HTTPAdapter):
@@ -50,12 +50,11 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # Function to setup an Exchangelib Account object to be used throughout the code
 def account_Setup(params):
-    shared = params.get('delegated')
     config_kwargs = {'server': params['server'],
-                      'credentials': Credentials(params['email'], params['password']),
-                      'retry_policy': FaultTolerance(max_wait=3),
-                      'max_connections': 2
-                      }
+                     'credentials': Credentials(params['email'], params['password']),
+                     'retry_policy': FaultTolerance(max_wait=3),
+                     'max_connections': 2
+                     }
     if params['ntlm']:
         config_kwargs['auth_type'] = NTLM
 
@@ -64,44 +63,47 @@ def account_Setup(params):
     try:
         # TODO:
         # understand this
-        if params.get('delegated'):
-            account = Account(primary_smtp_address=shared,
-                              autodiscover=False, config=config, access_type=DELEGATE)
-        else:
-            account = Account(primary_smtp_address=params['email'],
-                              autodiscover=False, config=config, access_type=DELEGATE)
+        # if params.get('delegated'):
+        #     account = Account(primary_smtp_address=shared,
+        #                       autodiscover=False, config=config, access_type=DELEGATE)
+        # else:
+        account = Account(primary_smtp_address=params['email'],
+                          autodiscover=False, config=config, access_type=DELEGATE)
 
         return account
     except Exception as e:
-        print(f'[!] Error while connecting:\n{e}')
+        print(Fore.LIGHTRED_EX + f'[!] Error while connecting:\n\t{e}\n')
+        if args['ntlm']:
+            print(Fore.LIGHTYELLOW_EX + f'[!] Try without -nt \n')
+        sys.exit()
 
 
 # List folders from a users inbox
 def list_folders(accountObject, params=None):  # tree_view=False, count=False, root=False):
-    root = params.get('root')
-    tree_view = not params.get('absolute')
-    print_count = params.get('print_count')
+    root = params['root']
+    tree_view = not params['absolute']
+    print_count = params['print_count']
 
     root_folder = accountObject.root if root else accountObject.msg_folder_root
 
-    filename = f"{params.get('user_folder')}/folders.txt"
+    filename = f"{params['user_folder']}/folders.txt"
 
-    print('\n' + f'[+] Folder List for {params.get("email")}' + '\n')
+    print('\n' + f'[+] Folder List for {params["email"]}' + '\n')
 
     if tree_view and not print_count:
         print(root_folder.tree())
         with open(filename, 'w', encoding='utf8') as writer:
             writer.write(root_folder.tree())
-        print(f'\n[=] Saved to "./{filename}"\n')
+        print(Fore.LIGHTGREEN_EX + f'\n[=] Saved to "./{filename}"\n')
         return
     elif tree_view and print_count:
         tree = root_folder.tree() + "\n"  # .split("\n")
         # if tree_view and count:
         for folder_object in root_folder.walk():
             # folder_childs = f' (folders: {folder_object.child_folder_count}, emails: {folder_object.total_count})'
-            folder_childs = f"emails : {folder_object.total_count}" if folder_object.total_count else ""
-            folder_childs += "\t" if folder_object.total_count and folder_object.child_folder_count else ""
-            folder_childs += f'folders: {folder_object.child_folder_count}' if folder_object.child_folder_count else ""
+            folder_children = f"emails : {folder_object.total_count}" if folder_object.total_count else ""
+            folder_children += "\t" if folder_object.total_count and folder_object.child_folder_count else ""
+            folder_children += f'folders: {folder_object.child_folder_count}' if folder_object.child_folder_count else ""
 
             # tree = tree.replace(folder_object.name + "\n", "{:50s} {}\n".format(folder_object.name, folder_childs))
             regex = f"(?<=(\n)).*({folder_object.name.replace('?', '.')})\n"
@@ -109,7 +111,7 @@ def list_folders(accountObject, params=None):  # tree_view=False, count=False, r
             try:
                 result = re.search(regex, tree)
                 result = result.group(0)
-                tree = tree.replace(result, "{:50s} {}\n".format(result[:-1], folder_childs))
+                tree = tree.replace(result, "{:50s} {}\n".format(result[:-1], folder_children))
             except Exception as e:
                 print("[!] Exception during printing folders: ")
                 print(e)
@@ -126,16 +128,16 @@ def list_folders(accountObject, params=None):  # tree_view=False, count=False, r
         for folder_object in root_folder.walk():
             info_to_print = folder_object.absolute
             if print_count:
-                folder_childs = f"emails: {folder_object.total_count}" if folder_object.total_count else ""
-                folder_childs += " " if folder_object.total_count and folder_object.child_folder_count else ""
-                folder_childs += f'folders: {folder_object.child_folder_count}' if folder_object.child_folder_count else ""
-                print("{:26s} {}".format(folder_childs, info_to_print))
+                folder_children = f"emails: {folder_object.total_count}" if folder_object.total_count else ""
+                folder_children += " " if folder_object.total_count and folder_object.child_folder_count else ""
+                folder_children += f'folders: {folder_object.child_folder_count}' if folder_object.child_folder_count else ""
+                print("{:26s} {}".format(folder_children, info_to_print))
             else:
                 print(info_to_print)
         print("\n[=] Done\n")
 
 
-def get_search_output_from_email(email=None, matches_output=None):
+def get_search_output_from_email(email=None, folder=None, matches_output=None):
     sender = f"{email.sender.name if email.sender.name else 'unknown'} <{email.sender.email_address if email.sender.email_address else 'unknown'}>" if email.sender else "fully unknown"
 
     recipients = "".join(
@@ -146,15 +148,13 @@ def get_search_output_from_email(email=None, matches_output=None):
     subject = email.subject
     attach = email.has_attachments
     output = f"""
-{'=' * 70}
-ID: {email.id}
-
+{Fore.LIGHTCYAN_EX + '=' * 70 + Fore.LIGHTYELLOW_EX}
+Folder:      {folder}
 Sender:      {sender}
 Recipients:  {recipients}
 Sent:        {sent}
 Subject:     {subject}
 Attachments: {attach}
-
 {matches_output}
     """
 
@@ -162,15 +162,15 @@ Attachments: {attach}
 
 
 def create_user_folder(params=None):
-    email = params.get('email')
+    email = params['email']
 
     folder_name = sanitise_filename(f"{email}")
 
     if not os.path.isdir(folder_name):
         os.mkdir(folder_name)
-        print(f'\n[+] User folder "{folder_name}" created')
+        print(Fore.LIGHTCYAN_EX, f'\n[+] User folder "{folder_name}" created')
     else:
-        print(f'\n[+] User folder "{folder_name}" exist')
+        print(Fore.LIGHTCYAN_EX, f'\n[+] User folder "{folder_name}" exist')
     return folder_name
 
 
@@ -187,12 +187,12 @@ def get_all_subfolders(folder=None):
 
 
 # Search users email for specified terms
-def search_emails(accountObject=None, params=None):
-    search_folder = params.get("folder")  # default Inbox
-    terms = params.get("terms")
-    # count = params.get("count")  # find usage
-    where_to_search = params.get('field')
-    user_folder = params.get('user_folder')
+def search_Emails(accountObject=None, params=None):
+    search_folder = params["folder"]  # default Inbox
+    terms = params["terms"]
+    email_count = params.get("count")
+    where_to_search = params['field']
+    user_folder = params['user_folder']
 
     # if we want to dump searching results we
     if len(terms) > 1:
@@ -204,33 +204,20 @@ def search_emails(accountObject=None, params=None):
 
     # TODO ADD len of result printing for regex
 
-    # we are using lists with single element because of all option
-    # when we have to check each folder separately in for cycle
-    if search_folder.lower() == "inbox":
-        all_folders = [accountObject.inbox]
-    elif search_folder.lower() == "sent":
-        all_folders = [accountObject.sent]
-    elif search_folder.lower() == "all":
-        all_folders = [accountObject.msg_folder_root]
-        args['recurse'] = True
+    all_folders = get_Folders(accountObject=accountObject, params=params)
 
-    else:
-        # including base folder (where we are searching for subfolders)
-        all_folders = [find_Folder(accountObject=accountObject, folder_to_find=search_folder)]
-        if not all_folders[0]:
-            print(f"\n[-] Folder {search_folder} not found")
-            return 1
-
-    if params.get('recurse'):
-        all_folders = get_all_subfolders(all_folders[0])
-
+    # TODO Better filtering for bad folder
     # skipping calendar and contacts because there is no email objects there
-    bad_folders = get_all_subfolders(accountObject.contacts) + get_all_subfolders(accountObject.calendar)
+    bad_folders = get_all_subfolders(accountObject.contacts)
+    bad_folders += get_all_subfolders(accountObject.calendar)
+    bad_folders += get_all_subfolders(accountObject.tasks)
+
     all_folders = [folder for folder in all_folders if folder not in bad_folders]
 
-    if params.get('dump'):
-        storage_pattern = datetime.datetime.today().strftime(
-            f'Search {search_folder} ({",".join(termList)}) %Y-%m-%d %H-%M')
+    storage_pattern = datetime.datetime.today().strftime(
+        f'Search {search_folder} ({",".join(termList)}) %Y-%m-%d %H-%M')
+
+    if params['dump']:
 
         # if we are dumping all or we have more than 1 folder, we make dir for a lot of mboxes
         if len(all_folders) > 1:  # search_folder.lower() == 'all':
@@ -238,7 +225,7 @@ def search_emails(accountObject=None, params=None):
             # for results
             mbox_output = f"./{user_folder}/{storage_pattern}"
             os.mkdir(mbox_output)
-            print(f"\n[+] Folder \"{mbox_output}\" created\n")
+            print(Fore.LIGHTCYAN_EX, f"\n[+] Folder \"{mbox_output}\" created\n")
         else:
             # if we searching in and dumping one folder - we just creating .mbox file in user folder
             mbox_output = f'./{user_folder}/{storage_pattern}.mbox'
@@ -246,19 +233,18 @@ def search_emails(accountObject=None, params=None):
     search_logfile = f'{user_folder}/{storage_pattern}.txt'
     writer = open(search_logfile, 'w', encoding='utf-8')
 
+    print(
+        Fore.LIGHTCYAN_EX + f'\n[+] Searching in emails {where_to_search} for {",".join(termList)} in "{search_folder}" Folder\n')
+
     for folder in all_folders:
 
         found_checked_emails_IDs = []
         # if no emails in folder, going next folder
-        if folder.total_count == 0:
-            continue
+
+        if not args['count']:
+            email_count = folder.total_count
 
         """ where to search """
-
-        if where_to_search == 'body':
-            print('[+] Searching Email body for {} in "{}" Folder'.format(terms, folder.name))
-        elif where_to_search == 'subject':
-            print('[+] Searching Email Subject for {} in "{}" Folder'.format(terms, folder.name))
 
         # just a query what will be modified later when we chose where to search (body or subject)
         emails_for_search = folder.all().order_by('-datetime_received').values_list('id', 'changekey')
@@ -270,10 +256,10 @@ def search_emails(accountObject=None, params=None):
 
         if where_to_search == 'body':
             for term in termList:
-                found_emails_IDs_not_checked += list(emails_for_search.filter(body__contains=term))
+                found_emails_IDs_not_checked += list(emails_for_search.filter(body__contains=term))[:email_count]
         elif where_to_search == 'subject':
             for term in termList:
-                found_emails_IDs_not_checked += list(emails_for_search.filter(subject__contains=term))
+                found_emails_IDs_not_checked += list(emails_for_search.filter(subject__contains=term))[:email_count]
 
         # converting to set for non duplicating
         found_emails_IDs_not_checked = set(found_emails_IDs_not_checked)
@@ -281,10 +267,10 @@ def search_emails(accountObject=None, params=None):
         """First search stage end"""
 
         if len(found_emails_IDs_not_checked) == 0:
-            print(f"[=] Nothing found in \"{folder.name}\"\n")
+            print(Fore.LIGHTRED_EX + f"[-] Nothing found in\t\"{folder.name}\"")
             continue
 
-        # just an iterator
+            # just an iterator
         found_emails_data = accountObject.fetch(found_emails_IDs_not_checked,
                                                 only_fields=['text_body', 'cc_recipients', 'sender', 'to_recipients',
                                                              'subject', 'datetime_sent', 'has_attachments', 'author'])
@@ -318,7 +304,7 @@ def search_emails(accountObject=None, params=None):
                     found_substrings = re.findall(regex, clear_message_text_body, re.IGNORECASE)
 
                     # if we want to dump found emails, we don't want to miss any email because of previously found exact substring
-                    if mbox_output:
+                    if args['dump']:
                         found_substrings = [i[0] for i in found_substrings]
                     else:
                         found_substrings = [i[0] for i in found_substrings if i[0] not in already_found_substrings]
@@ -326,6 +312,8 @@ def search_emails(accountObject=None, params=None):
                     # if nothing found, going to next emails
                     if len(found_substrings) == 0:
                         continue
+                    elif not args['quite']:
+                        print('\n' + Fore.LIGHTCYAN_EX + '[+] Found something in "{}" Folder'.format(folder.name))
 
                     # Just how found matches will be printed later
                     matches_output = "".join(
@@ -341,16 +329,29 @@ def search_emails(accountObject=None, params=None):
                 found_checked_emails_IDs.append((email.id, email.changekey))
 
                 # just getting output for print
-                result_for_printing = get_search_output_from_email(email=email, matches_output=matches_output)
-                print(result_for_printing)
+                folder_path = folder.absolute.replace(accountObject.msg_folder_root.absolute + '/', '')
+                result_for_printing = get_search_output_from_email(email=email, folder=folder_path,
+                                                                   matches_output=matches_output)
+
+                if not params['quite']:
+                    result_for_printing_colored = result_for_printing
+                    for term in termList:
+                        result_for_printing_colored = result_for_printing_colored.replace(term,
+                                                                                          Fore.LIGHTRED_EX + term + Fore.LIGHTYELLOW_EX)
+
+                    for index in range(len(found_substrings)):
+                        result_for_printing_colored = result_for_printing_colored.replace(f'Match {index + 1}:',
+                                                                                          Fore.LIGHTRED_EX + f'Match {index + 1}:' + Fore.LIGHTYELLOW_EX)
+                    print(result_for_printing_colored + '\n')
+
                 writer.write(result_for_printing)
 
             except Exception as e:
-                print("[!] Exception while searching: ")
-                print(e)
+                print(Fore.LIGHTRED_EX, "[!] Exception while searching: ")
+                print(Fore.LIGHTRED_EX, e)
 
         # if we are dumping more than one folder and we found something
-        if params.get('dump') and len(found_checked_emails_IDs) != 0:
+        if params['dump'] and len(found_checked_emails_IDs) != 0:
             if len(all_folders) > 1:  # search_folder.lower() == 'all' or :
                 # Okay, don't try to understand bellow line, it works fine
                 mbox_filename = f"{''.join(['[' + parent + '] ' for parent in folder.parent.absolute.replace(accountObject.msg_folder_root.absolute + '/', '').split('/')])} {folder.name}" if folder.parent.absolute != accountObject.msg_folder_root.absolute else f"{folder.name}"
@@ -359,17 +360,17 @@ def search_emails(accountObject=None, params=None):
             elif len(all_folders) == 1:
                 mbox_full_path = mbox_output
             else:
-                print("WTF" * 160)
+                print(Fore.LIGHTRED_EX, "WTF" * 160)
 
-            get_tqdm_description = f"Downloading search results for \"{folder.name}\" folder"
-            dump_tqdm_description = f"[+] Saving found in \"{folder.name}\" folder to {mbox_full_path}"
+            get_tqdm_description = Fore.LIGHTYELLOW_EX + f"Downloading search results for \"{folder.name}\" folder"
+            dump_tqdm_description = Fore.LIGHTYELLOW_EX + f"[+] Saving found in \"{folder.name}\" folder to {mbox_full_path}"
 
             found_emails_mimes = get_emails(accountObject=accountObject, email_ids_to_download=found_checked_emails_IDs,
                                             tqdm_description=get_tqdm_description)
             dump_to_Mbox(mbox_file_path=mbox_full_path, mimes_list=found_emails_mimes,
-                         tqdm_desctiption=dump_tqdm_description)
+                         tqdm_desctiption=dump_tqdm_description, folder_name=folder.name)
     writer.close()
-
+    print(Fore.LIGHTGREEN_EX + f'\n[=] Text results saved to "{search_logfile}"\n')
     # with open('last_search.ids', 'w', encoding='utf8') as writer:
     #     for email in found_emails_IDs_not_checked:
     #         writer.write(str(found_emails_IDs_not_checked))
@@ -378,36 +379,34 @@ def search_emails(accountObject=None, params=None):
 def proxy_check(params=None):
     a_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
-    proxy = re.search(r'\w+?://([A-Za-z_0-9\.-]+):(\d+)', params.get('proxy'))
-    proxy_addr: str = proxy.group(1)
+    proxy = re.search(r'\w+?://([A-Za-z_0-9\.-]+):(\d+)', params['proxy'])
+    proxy_address = str(proxy.group(1))
     proxy_port = int(proxy.group(2))
 
-    location = (proxy_addr, proxy_port)
+    location = (proxy_address, proxy_port)
 
-    result_of_check = a_socket.connect_ex(location)
+    # 0 is proxy okay
+    result_of_check = not a_socket.connect_ex(location)
 
-    if result_of_check == 0:
-        return True
-    else:
-        return False
+    return result_of_check
 
 
 # Search for attachments based on search terms provided
 def searchAttachments(accountObject, params):
-    folder = params.get("folder")
-    terms = params.get("terms")
-    count = params.get("count")
+    folder = params["folder"]
+    terms = params["terms"]
+    count = params["count"]
 
     if len(terms) > 1:
         termList = terms.split(',')
     else:
         termList = terms
 
-    if params.get("delegated"):
+    if params["delegated"]:
         searchFolder = accountObject.inbox
     else:
         searchFolder = accountObject.root / 'Top of Information Store' / folder
-    if params.get("field") == 'body':
+    if params["field"] == 'body':
         for term in termList:
             searchResult = searchFolder.filter(body__contains=term)[:count]
     else:
@@ -470,15 +469,15 @@ def searchDelegates(params, fparser):
 def list_contacts(accountObject=None, params=None):
     """Prints all user email addresses"""
     """GAL NOT TESTED"""
-    is_gal = params.get('gal')
-    verbose = params.get('verbose')
+    is_gal = params['gal']
+    verbose = params['verbose']
 
     if verbose:
-        file = f'{params.get("user_folder")}/contacts_verbose.txt'
-        file = open(file, 'w', encoding='utf8')
+        file_name = f'{params["user_folder"]}/contacts_verbose.txt'
+        file = open(file_name, 'w', encoding='utf8')
     else:
-        file = f'{params.get("user_folder")}/contacts_emails.txt'
-        file = open(file, 'w', encoding='utf8')
+        file_name = f'{params["user_folder"]}/contacts_emails.txt'
+        file = open(file_name, 'w', encoding='utf8')
 
     if is_gal:
         print("\n[+] GAL Contacts")
@@ -491,7 +490,7 @@ def list_contacts(accountObject=None, params=None):
         print(all_addresses)
 
     else:
-        print("\n[+] AllContacts\n")
+        print(Fore.LIGHTYELLOW_EX + "\n[+] AllContacts\n")
         folder = accountObject.root / 'AllContacts'
         for person in folder.people():
             emails = "".join([email.email_address + '\n' for email in person.email_addresses])[
@@ -526,6 +525,7 @@ def list_contacts(accountObject=None, params=None):
             file.write(verbose_output + '\n')
 
         file.close()
+        print(Fore.LIGHTGREEN_EX + f'[=] Saved to "{file_name}"')
     print()
 
 
@@ -534,7 +534,7 @@ def list_contacts(accountObject=None, params=None):
 def file_parser(params):
     return_dict = {}
 
-    if isfile(params.get("galList")):
+    if isfile(params["galList"]):
         with open(params.get("galList", "r")) as f:
             userfile_content = f.read().splitlines()
             f.close()
@@ -600,10 +600,11 @@ def dump_to_Mbox(folder_name=None, mbox_file_path=None, mimes_list=[], tqdm_desc
         emails_count = "{:>3s}".format(str(len(mimes_list))) + ' emails'
         info = "( {} {:>6s} MB )".format(emails_count, size)
         if folder_name:
-            print("[+] Dumped folder\t{:25s} {:18s}".format('"' + folder_name + '"', info))
+            print(Fore.LIGHTYELLOW_EX + "[+] Dumped folder\t{:25s} {:18s}".format('"' + folder_name + '"', info))
         else:
             # kostil'
-            print("[+] Dumped to {} {:>18}".format(re.sub('\S+' + args['user_folder'] + '/', '', mbox_file_path), info))
+            print(Fore.LIGHTYELLOW_EX + "[+] Dumped to {} {:>18}".format(
+                re.sub('\S+' + args['user_folder'] + '/', '', mbox_file_path), info))
 
 
 def dump_thread_worker(accountObject=None, folder_name=None, thread_index=None, params=None,
@@ -611,8 +612,8 @@ def dump_thread_worker(accountObject=None, folder_name=None, thread_index=None, 
     global messages_per_thread
     exception_string = f"[!] Thread {thread_index} is reconnected!"
     if folder_name:
-        tqdm_description = f"[+] Downloading \"{folder_name}\""
-        if params.get('threads') != 1:
+        tqdm_description = Fore.LIGHTYELLOW_EX + f"[+] Downloading \"{folder_name}\""
+        if params['threads'] != 1:
             tqdm_description += f' (Thr №{thread_index})'
     else:
         tqdm_description = ""
@@ -651,29 +652,40 @@ def get_emails(accountObject=None, email_ids_to_download=None, tqdm_description=
     return downloaded_messages
 
 
-def dump_folders(accountObject=None, params=None):
-    # брать папку из аргументов если dump all -d "папка куда"
+def get_Folders(accountObject=None, params=None):
+    """
+    :param params: startup arguments
+    :param accountObject: Exchangelib account object
+    :return folders: list of folders
+    """
+    start_folder = params['folder']
 
-    folder_to_dump = params.get('folder')
-    local_folder = params.get('user_folder') + '/' + params.get('dump')
-
-    emails_count = params.get('count')
-    if folder_to_dump.lower() == "inbox":
-        base_folder = [accountObject.inbox]
-    elif folder_to_dump.lower() == "sent":
-        base_folder = [accountObject.sent]
-    elif folder_to_dump.lower() == "all":
-        base_folder = [accountObject.msg_folder_root]
+    if start_folder.lower() == "inbox":
+        folders = [accountObject.inbox]
+    elif start_folder.lower() == "sent":
+        folders = [accountObject.sent]
+    elif start_folder.lower() == "all":
+        folders = [accountObject.msg_folder_root]
         params['recurse'] = True
     else:
-        base_folder = [find_Folder(accountObject=accountObject, folder_to_find=folder_to_dump)]
-        if not base_folder:
-            print(f"\n[-] Folder {local_folder} not found")
-            return 1
+        folders = [find_Folder(accountObject=accountObject, folder_to_find=start_folder)]
+        if not folders:
+            print(f"\n[-] Folder {start_folder} not found")
+            return None
 
     # if we want -r, well get all subfolders
-    if params.get('recurse'):
-        base_folder = get_all_subfolders(base_folder[0])
+    if params['recurse']:
+        folders = get_all_subfolders(folders[0])
+
+    folders = [folder for folder in folders if folder.total_count != 0]
+
+    return folders
+
+
+def dump_Folders(accountObject=None, params=None):
+    local_folder = params['user_folder'] + '/' + params['dump']
+
+    emails_count = params['count']
 
     if os.path.isdir(local_folder):
         print(f"\n[-] Folder {local_folder} already exists, use another (-d)")
@@ -687,7 +699,7 @@ def dump_folders(accountObject=None, params=None):
             print(e)
             return 1
 
-    all_folders_2_dump = base_folder
+    all_folders_2_dump = get_Folders(accountObject=accountObject, params=params)
 
     # filter for useless folders
     bad_folders = get_all_subfolders(accountObject.calendar) + get_all_subfolders(accountObject.contacts)
@@ -706,7 +718,7 @@ def dump_folders(accountObject=None, params=None):
         mbox_file_path = f"./{local_folder}/{mbox_filename}.mbox"
 
         # cutter for all_items
-        if not params.get('count'):
+        if not params['count']:
             emails_count = folder.total_count
 
         # list of (id,changekey) of emails in current folder
@@ -719,7 +731,7 @@ def dump_folders(accountObject=None, params=None):
 
         """Threads prep START"""
         threads_lists = []
-        thread_count = params.get('threads')
+        thread_count = params['threads']
         # using one thread for downloading if folder has less than 10 emails
         if len(all_items) <= 10:
             thread_count = 1
@@ -759,6 +771,7 @@ def dump_folders(accountObject=None, params=None):
             t = threading.Thread(target=dump_thread_worker,
                                  kwargs=thread_kwargs)
             threads_lists.append(t)
+            # t.daemon = True
             t.start()
 
         """ Thread init stop """
@@ -774,30 +787,32 @@ def dump_folders(accountObject=None, params=None):
         del messages_per_thread
         gc.collect()
 
-    print("\n[=] All folders downloaded")
+    print(Fore.LIGHTGREEN_EX + f"\n[=] All folders downloaded to \"{local_folder}\"\n")
 
 
-def get_autodiscover(params=None):
+def get_Autodiscover(params=None):
+    email = params['email']
+
     # if --server present, clearing from trash
     # if only --email present, taking domain from it
-    server = params.get('server').replace("https://", "").replace("http://", "") \
-        if params.get('server') \
-        else \
-        params.get('email').split('@')[1]
 
-    email = params.get('email')
-    password = params.get('password')
+    if params['server']:
+        server = params['server'].replace("https://", "").replace("http://", "")
+    else:
+        server = params['email'].split('@')[1]
 
-    # Auths
+    password = params['password']
+
+    # If we passing NTLM hash, we don't need use BasicAuth
     auths = {'NTLM': HttpNtlmAuth, 'Basic': HTTPBasicAuth}
     if re.match(r'^[a-fA-F\d]{32}:[a-fA-F\d]{32}$', password):
         del auths['Basic']
 
     autodiscover_urls = []
-    a = server.split('.')
-    autodiscover_urls += ['autodiscover.' + server[server.index(a[i]):] for i in range(len(a) - 1)]
-    autodiscover_urls += [server[server.index(a[i]):] for i in range(len(a) - 1)]
-    autodiscover_urls += ['outlook.office365.com']
+    fqdn_parts = server.split('.')
+    autodiscover_urls += ['autodiscover.' + server[server.index(fqdn_parts[i]):] for i in range(len(fqdn_parts) - 1)]
+    autodiscover_urls += [server[server.index(fqdn_parts[i]):] for i in range(len(fqdn_parts) - 1)]
+    autodiscover_urls += ['outlook.office365.com']  # на всякий случай если кто-то не додумался влепить autodiscover
     autodiscover_request_body = f"""
                 <Autodiscover xmlns="http://schemas.microsoft.com/exchange/autodiscover/outlook/requestschema/2006">
                 <Request>
@@ -807,7 +822,7 @@ def get_autodiscover(params=None):
                 </Autodiscover>
                 """
 
-    print("\n[+] Will check this domains:")
+    print(Fore.LIGHTYELLOW_EX + "\n[!] Will check this domains:")
     for index, url in enumerate(autodiscover_urls):
         print("{:>5s}.\t{}".format(str(index), url))
     else:
@@ -815,73 +830,72 @@ def get_autodiscover(params=None):
 
     checked_urls = []
     for url in autodiscover_urls:
-        try:
-            # Check if dns name is present
-            # If exception - it doesnt exist
+        # Check if dns name is present
+        try:  # If exception - it doesnt exist
             socket.gethostbyname(url)
-            # if 'A' record exists, saving
-            checked_urls.append(url)
-            print(f"[+] Found A record for: {url}")
+            checked_urls.append(url)  # if 'A' record exists, saving
+            print(Fore.LIGHTYELLOW_EX + f"[+] Found A record for: {url}")
         except:
             continue
 
     print()
 
     autodiscover_urls = checked_urls
-    try:
-        autodiscover_urls.remove('office365.com')
-    except:
-        pass
+
     # first we trying https for and ntlm for secure
     for method in ["https://", "http://"]:
 
         for url in autodiscover_urls:
             for auth_key, auth_type in auths.items():
-                headers = {'User-Agent': params.get('user_agent'),
+                headers = {'User-Agent': params['user_agent'],
                            'Content-Type': 'text/xml'}
 
                 try:
-                    full_url = f'{method}{url}/autodiscover/autodiscover.xml'
+                    full_autodiscover_url = f'{method}{url}/autodiscover/autodiscover.xml'
 
                     session = requests.Session()
                     session.auth = auth_type(email, password)
                     session.verify = False
                     session.trust_env = True
 
-                    redirect_check = session.get(full_url, allow_redirects=False, timeout=1, headers=headers)
+                    redirect_check = session.get(full_autodiscover_url, allow_redirects=False, timeout=1,
+                                                 headers=headers)
 
                     if redirect_check.status_code == 404:
                         continue
 
                     if redirect_check.status_code == 302:
-                        print(f"\n[!] Redirected from {full_url}\n to {redirect_check.next.url} ( {auth_key} auth )\n")
-                        full_url = redirect_check.next.url
+                        print(Fore.LIGHTYELLOW_EX,
+                              f"\n[!] Redirected from {full_autodiscover_url}\n to {redirect_check.next.url} ( {auth_key} auth )\n")
+                        full_autodiscover_url = redirect_check.next.url
                         del redirect_check
 
-                    response = session.post(full_url, data=autodiscover_request_body, headers=headers, timeout=1)
+                    response = session.post(full_autodiscover_url, data=autodiscover_request_body, headers=headers,
+                                            timeout=1)
 
                     if response.status_code == 401:
-                        print(
-                            f"[-] 401 - Failed to authorise at {full_url} ( {auth_key} auth )\n    (check manually why if creds are correct)")
+                        print(Fore.LIGHTRED_EX,
+                              f"[-] 401 - Failed to authorise at {full_autodiscover_url} ( {auth_key} auth )\n    (check manually why if creds are correct)")
                         continue
 
                     if response.status_code != 200 or len(response.text) == 0:
                         continue
-                    print(f"\n[+] Got VALID autodiscover answer from {full_url} ( {auth_key} auth )")
-                    file = f"{params.get('user_folder')}/autodiscover.xml"
+                    print(Fore.LIGHTCYAN_EX,
+                          f"\n[+] Got VALID autodiscover answer from {full_autodiscover_url} ( {auth_key} auth )")
+                    file = f"{params['user_folder']}/autodiscover.xml"
                     with open(file, 'w', encoding='utf8') as writer:
                         writer.write(response.text)
 
                     regex = '(?<=(<ewsurl>))http(s)?://([^/]+)(?=(\S+</EwsUrl>))'
                     servers = list(set([result[2] for result in re.findall(regex, response.text, re.IGNORECASE)]))
-                    print('\n[!] Your servers are:')
+                    print(Fore.LIGHTCYAN_EX, '\n[!] Your servers are:')
                     for index, ews_server in enumerate(servers):
-                        print("{:>5s}.\t{}".format(str(index), ews_server))
+                        print(Fore.LIGHTGREEN_EX, "{:>5s}.\t{}".format(str(index), ews_server))
                     print()
 
                     return response.text
                 except Exception as e:
-                    print(f"[-] Could not get {full_url} ( {auth_key} auth )")
+                    print(Fore.LIGHTRED_EX, f"[-] Could not get {full_autodiscover_url} ( {auth_key} auth )")
                     # print(e)
 
 
@@ -946,8 +960,8 @@ def get_args():
                                   dest="terms", metavar=' ',
                                   help='String to Search (Comma separated for multiple terms)',
                                   nargs='+', type=str, default='password,login,vpn')
-    # search_subparser.add_argument('-c', '--count', action="store",
-    #                               dest="count", metavar=' ', help='Number of emails to search', type=int)
+    search_subparser.add_argument('-c', '--count', action="store",
+                                  dest="count", metavar=' ', help='Search up to N emails for term', type=int)
     search_subparser.add_argument('--field', action="store", default='body',
                                   dest="field", help='Email field to search. Default is subject',
                                   choices=['subject', 'body'])
@@ -956,6 +970,8 @@ def get_args():
                                   help='Dump found to mbox file')
     search_subparser.add_argument('-r', '--recurse', action='store_true', default=False,
                                   help='Do recurse search if custom folder (-f) specified')
+    search_subparser.add_argument('-q', '--quite', action='store_true', default=False,
+                                  help='Do not print search results on the screen')
 
     if len(sys.argv) == 1:
         parser.print_help()
@@ -971,19 +987,19 @@ def get_args():
 # Function for finding and downloading compressed OAB (.lzx)
 def get_lzx_file(params=None):
     # server = params.get('server').replace("https://", "").replace("http://", "")
-    email = params.get('email')
-    password = params.get('password')
-    autodiscover_file = f'{params.get("user_folder")}/autodiscover.xml'
+    email = params['email']
+    password = params['password']
+    autodiscover_file = f'{params["user_folder"]}/autodiscover.xml'
 
-    headers = {'User-Agent': params.get('user_agent')}
+    headers = {'User-Agent': params['user_agent']}
 
     if isfile(autodiscover_file):
         with open(autodiscover_file, 'r', encoding='utf8') as reader:
             autodiscover = reader.read()
     else:
-        autodiscover = get_autodiscover(params=params)
+        autodiscover = get_Autodiscover(params=params)
         if not autodiscover:
-            print('\n[-] Didn\'t found autodiscover, exiting')
+            print(Fore.LIGHTRED_EX, '\n[-] Didn\'t found autodiscover, exiting')
             return
 
     auths = {'NTLM': HttpNtlmAuth, 'Basic': HTTPBasicAuth}
@@ -996,7 +1012,7 @@ def get_lzx_file(params=None):
     oab_urls = list(set(oab_urls))
     print()
     for oab_url in oab_urls:
-        print(f"[+] Found oab url: {oab_url}oab.xml")
+        print(Fore.LIGHTYELLOW_EX + f"[+] Found oab url: {oab_url}oab.xml")
     print()
     # first, checking NTLM auth, then Basic
     for auth_key, auth_type in auths.items():
@@ -1016,7 +1032,7 @@ def get_lzx_file(params=None):
                 if found:
                     lzx_filename = found.group(1)
 
-                    print(f"[+] Found lzx url: {oab_url + lzx_filename}")
+                    print(Fore.LIGHTYELLOW_EX + f"[+] Found lzx url: {oab_url + lzx_filename}")
 
                     lzx_url = oab_url + lzx_filename
 
@@ -1024,16 +1040,17 @@ def get_lzx_file(params=None):
                     lzx_response = session.get(lzx_url, stream=True, verify=False)
 
                     if lzx_response.status_code == 200:
-                        with open(f'{params.get("user_folder")}/{lzx_filename}', 'wb') as f:
+                        with open(f'{params["user_folder"]}/{lzx_filename}', 'wb') as f:
                             lzx_response.raw.decode_content = True
                             shutil.copyfileobj(lzx_response.raw, f)
 
-                        print(f'\n[+] Saved to: "./{params.get("user_folder")}/{lzx_filename}"')
-                        print('\n[!] You can use oabextract tool to get oab from lzx file')
+                        print(Fore.LIGHTGREEN_EX + f'\n[+] Saved to: "./{params["user_folder"]}/{lzx_filename}"')
+                        print(Fore.LIGHTYELLOW_EX + '\n[!] You can use oabextract tool to get oab from lzx file')
                         # print('\n[!] Place it here for using "list oab"')
-                        print(
-                            '\n[!] Download: https://github.com/bsrinivasguptha/LzxToOabComplied/blob/master/Release.zip\n')
-
+                        print(Fore.LIGHTYELLOW_EX +
+                              '    Download it from https://github.com/bsrinivasguptha/LzxToOabComplied/blob/master/Release.zip')
+                        print(Fore.LIGHTYELLOW_EX +
+                              '    Then you can use "pymailsniper -e user@example.com list oab --oab ./path/to/oab.oab"\n')
                         return
                     else:
                         print(f"[!] Could not get: {lzx_url} ( {auth_key} Auth )\n")
@@ -1045,12 +1062,12 @@ def get_lzx_file(params=None):
 
 
 def list_oab(params=None):
-    autodiscover_file = f'{params.get("user_folder")}/autodiscover.xml'
+    autodiscover_file = f'{params["user_folder"]}/autodiscover.xml'
     if isfile(autodiscover_file):
         with open(autodiscover_file, 'r', encoding='utf8') as reader:
             autodiscover = reader.read()
     else:
-        autodiscover = get_autodiscover(params=params)
+        autodiscover = get_Autodiscover(params=params)
 
     """Searching delimiter in autodiscover"""
 
@@ -1062,7 +1079,7 @@ def list_oab(params=None):
         print("[!] Exception - Could not find LegacyDN in autodiscover\n")
         print(e)
 
-    oab_file = params.get('oab')
+    oab_file = params['oab']
 
     # read in file
     with open(oab_file, "rb") as reader:
@@ -1089,7 +1106,7 @@ def list_oab(params=None):
         # then cutting out small fields shorter than 3 chars
         user_list[user_index] = [field for field in user_list[user_index] if field != "" and 3 < len(field)]
 
-    file = f"{params.get('user_folder')}/parsed_oab.txt"
+    file = f"{params['user_folder']}/parsed_oab.txt"
     writer = open(file, 'w', encoding='utf8')
     for user in range(len(user_list)):
         for field in range(len(user_list[user])):
@@ -1143,10 +1160,10 @@ if __name__ == "__main__":
     # proxy stuff
     if args['proxy']:
         if not proxy_check(params=args):
-            print("\n[!] Proxy is down, exiting\n")
+            print(Fore.LIGHTRED_EX, "\n[!] Proxy is down, exiting\n")
             sys.exit()
         else:
-            print(f'\nProxy {args["proxy"]} looks okay, setting env variables and adapter\n')
+            print(Fore.LIGHTGREEN_EX, f'\nProxy {args["proxy"]} looks okay, setting env variables and adapter\n')
             proxy = args['proxy']
             if proxy:
                 try:
@@ -1192,27 +1209,23 @@ if __name__ == "__main__":
     if action == 'get':
         if args['object'] == 'autodiscover':
             # TODO: ask if .xml file exist already
-            answer = get_autodiscover(params=args)
+            answer = get_Autodiscover(params=args)
             if answer:
-                print(f"\n[=] Saved to \"./{args['user_folder']}/autodiscover.xml\"\n")
+                print(Fore.LIGHTGREEN_EX, f"\n[=] Saved to \"./{args['user_folder']}/autodiscover.xml\"\n")
             else:
-                print(f"\n[!] Nothing found")
+                print(Fore.LIGHTRED_EX, f"\n[!] Nothing found\n")
                 if args['server']:
-                    print('\n[!] Try again without -s !\n')
+                    print(Fore.LIGHTRED_EX, '\n[!] Try again without -s !\n')
             sys.exit()
         elif args['object'] == 'lzx':
             get_lzx_file(params=args)
             sys.exit()
 
     if not args['server']:
-        print('\n[!] Please specify server! Exiting.\n')
+        print(Fore.LIGHTRED_EX, '\n[!] Please specify server! Exiting.\n')
         sys.exit()
 
     accountObj = account_Setup(args)
-
-    if accountObj is None:
-        print('[=] Could not connect to MailBox\n\n')
-        sys.exit()
 
     start_time = time.time()
 
@@ -1227,15 +1240,15 @@ if __name__ == "__main__":
         # TODO: implement "dump all"
         if action_object == 'emails':
             # alias for "dump folder"
-            dump_folders(accountObj, params=args)
+            dump_Folders(accountObj, params=args)
         if action_object == 'contacts':
             print('NOT IMPLEMENTED YET!')
         if action_object == 'folders':
-            dump_folders(accountObj, params=args)
+            dump_Folders(accountObj, params=args)
 
     elif action == 'search':
         if action_object == 'emails':
-            search_emails(accountObj, args)
+            search_Emails(accountObj, args)
         if action_object == 'contacts':
             print('NOT IMPLEMENTED YET!')
         if action_object == 'folders':
@@ -1252,4 +1265,4 @@ if __name__ == "__main__":
             del os.environ['HTTPS_PROXY']
         except:
             pass
-    print("[=] Took time: {:.3f} min\n\n".format((time.time() - start_time) / 60))
+    print(Fore.LIGHTYELLOW_EX + "[=] Took time: {:.3f} min\n\n".format((time.time() - start_time) / 60))

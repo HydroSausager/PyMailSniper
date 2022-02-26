@@ -65,9 +65,9 @@ How it works look at line 25: https://github.com/jborean93/ntlm-auth/blob/master
 ### list folder
 ```
 list folders 
-            -a 	    --absolute	Print absolute paths 
-            -r 	    --root		Use "root" folder as root for printing insted of "Top Information Store"
-            -pc     --print-count	Print count of child folders and email
+        -a 	    --absolute	    Print absolute paths 
+        -r 	    --root	    Use "root" folder as root for printing insted of "Top Information Store"
+        -pc     --print-count   Print count of child folders and email
 
 ```
 #### Example:
@@ -75,7 +75,7 @@ list folders
 ### list oab
 ```
 list oab 
-	  -oab 	--oab	path to your oab file 
+        -oab 	--oab	path to your oab file 
 ```
 #### Example:
 `python3 pymailsniper.py -e user@example.com list oab --oab ./user@example.com/my_oab.oab`
@@ -83,8 +83,8 @@ list oab
 ### list contacts
 ```
 List contacts 
-	    -v	--verbose	Print additional info about contacts instead of just emails
-	    -g	--gal		Use GAL instead of "AllAccount" folder
+	    -v	--verbose   Print additional info about contacts instead of just emails
+	    -g	--gal       Use GAL instead of "AllAccount" folder
 
 "list contacts --gal"	NOT TESTED properly
 ```
@@ -142,10 +142,21 @@ search emails
 	-t	--terms		term1,term2,term3	(what to search separated by ,)			(Default - password)
 	-r	--recurive	Used when we want to search in all fubfolders 
 				of folder specified in --folder arg
+	-c      --count         Search up to N emails for term
+	-q      --quite         Do not print search results on the screen
 
   Search results saves in users folder by default (.txt)
 
 ```
+#### Examples:
+1. Search up to 100 'пароль' occurrence in every folder with dumping results and without printing results on the screen
+
+`python3 pymailsniper.py -e user@example.com -s exchange.example.com search emails -f all -t пароль --quite --dump --count 100`
+
+2. Search in Inbox for 'qweqwe' in folder "Folder" and all its subfolders with printing results on the screen
+
+`python3 pymailsniper.py -e user@example.com -s exchange.example.com search emails -f Folder -r -t qweqwe`
+
 TODO: 
 ```
 search attachments
