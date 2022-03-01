@@ -28,7 +28,7 @@ PS:
 7) Leave `-p` empty for secure input
 8) Download the entire mailbox at once (dump folders -f all -d ... -t ...)
 9) Search among ALL emails by terms and download the found letters in full
-10) Search apps by name and download if needed
+10) Search attachments by name and download if needed
 11) Proxy support
 12) PASS-THE-HASH
 
