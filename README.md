@@ -18,18 +18,19 @@
 PS:
 Я не про кодер, пишу в первую очередь для себя, исправления и пожелания приветствуются)
 
-# В чем отличия от оригинала и прочее
-1) Выкачивание папок и писем в файлы формата mbox
-2) Нормальный и настраиваемый листинг папок в ящике
-3) Многопоточность (dump folders)
-4) Красивый tqdm
-5) Рабочий поиск по тексту письма с возможность дампа результатов (последние результаты в .txt)
-6) Сделай autodiscover запрос или выкачай oab в один клик без бурпа и т.п.
-7) Оставь -p пустым чтобы не сохранять пароль в истории
-8) Выкачай весь ящик за раз (dump folders -f all -d ... -t ...)
-9) Ищи среди ВСЕХ писем и дампь результаты (search emails -f all -d my_folder -t password,пароль,секрет)
-10) Поддержка прокси
-11) PASS-THE-HASH
+# What are the differences from the original and so on
+1) Downloading folders and letters to mbox files
+2) Convenient folder browsing
+3) Multithreading (for dump folders)
+4) Pretty tqdm + colorama
+5) Working search in the email's body or subject text with the ability to dump the found letters to mbox
+6) Make an autodiscover request or download oab in one click without burp, etc.
+7) Leave `-p` empty for secure input
+8) Download the entire mailbox at once (dump folders -f all -d ... -t ...)
+9) Search among ALL emails by terms and download the found letters in full
+10) Search apps by name and download if needed
+11) Proxy support
+12) PASS-THE-HASH
 
 # Usage
 ```bash
@@ -44,6 +45,7 @@ python3 pymailsniper.py get -h
 As you may know, `pass the hash` works with NTLM hashes, so, first we need to force using NTLM for connection with `-nt` flag.
 
 To do `pass the hash`, just use your NTLM hash in LM:NT format instead of regular password which matches `^[a-fA-F\d]{32}:[a-fA-F\d]{32}$` regex.
+(You can fill LM part any 32 hex chars)
 
 This technique will work with any code, which uses ntlm-auth (Exchangelib, requests-ntlm and etc)  
 
@@ -110,7 +112,7 @@ dump emails
 				of folder specified in --folder arg 
 	
   'dump folders' and 'dump emails' are equal
-
+  for dumping attachments see "search attach"
 ```
 #### Examples:
 1. Dump every folder using LM:NT hash
@@ -157,10 +159,40 @@ search emails
 
 `python3 pymailsniper.py -e user@example.com -s exchange.example.com search emails -f Folder -r -t qweqwe`
 
-TODO: 
+### search attach
 ```
-search attachments
+search attach 
+	-f  --folder	folder's_name_on_server		(all,sent,inbox also supported) (Default - Inbox )
+	-d  --dump 	dump found attachments  	(default - False)
+	-r  --recurive	Used when we want to search in all fubfolders 
+			of folder specified in --folder arg
+	-n  -name       Search this terms in attachment's names (Comma separated) 
+	                Example -   docx,config,report
+	                without parameter will search every attachment
+
+
+  downloaded files are stored in /%user_folder%/attach/folder/%attach_extension%
+  
+  its is also saves original timestamps of files (ModifiedDate, CreationDate)
 ```
+#### Examples:
+1. Search every attachment
+
+`python3 pymailsniper.py -e user@example.com -s exchange.example.com search attach -f all`
+2. Dump every attachment
+
+`python3 pymailsniper.py -e user@example.com -s exchange.example.com search attach -f all --dump`
+
+3. Find all zip,docx,rar files and dump in folder "Folder" and all subfolders
+
+`python3 pymailsniper.py -e user@example.com -s exchange.example.com search attach -f Folder -r -n zip,docx,rar --dump`
+
+3. Download "my_secrets.docx" file from "Secrets" folder
+
+`python3 pymailsniper.py -e user@example.com -s exchange.example.com search attach -f Secrets -n my_secrets.docx --dump`
+
+
+
 
 ## Get
 ## get autodiscover

